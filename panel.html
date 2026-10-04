@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoFix Manager</title>
+</head>
+<body>
+
+  <header>
+    <h1>📋 Panel de Órdenes de Trabajo Activas</h1>
+    <h2>AutoFix Manager</h2>
+  </header>
+
+  <div class="tabla-container">
+    <table>
+      <thead>
+        <tr>
+          <th>N° OT</th>
+          <th>Patente</th>
+          <th>Vehículo</th>
+          <th>Cliente</th>
+          <th>Fallas Reportadas</th>
+          <th>Estado Inicial</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-ordenes">
+        <!-- Vista previa con un registro de ejemplo -->
+        <tr>
+          <td><strong>OT-0001</strong></td>
+          <td><span class="patente-tag">AB123CD</span></td>
+          <td>Toyota Corolla</td>
+          <td>Carlos Gómez <br><small style="color: #7f8c8d;">+5491198765432</small></td>
+          <td>Cambio de aceite y revisión de frenos</td>
+          <td><span class="estado-badge estado-ingresado">INGRESADO</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</body>
+</html>
