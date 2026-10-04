@@ -10,7 +10,7 @@ app.use(cors());
 const pool = mysql.createPool({
   host: '127.0.0.1',
   user: 'root',         // Tu usuario de MySQL
-  password: 'tu_password', // Tu contraseña de MySQL
+  password: '', // Tu contraseña de MySQL
   database: 'autofix_db'  // La base de datos del proyecto
 });
 
@@ -69,6 +69,33 @@ app.post('/api/ordenes-trabajo', async (req, res) => {
   } catch (error) {
     console.error('Error al guardar en BD:', error);
     res.status(500).json({ error: 'Hubo un error interno al guardar la orden' });
+  }
+});
+
+// 🔍 Endpoint GET para listar todas las OT ingresadas (sin fecha_creacion)
+app.get('/api/ordenes-trabajo', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        ot.id AS ot_id, 
+        ot.numero_ot, 
+        c.nombre_completo AS cliente, 
+        c.telefono, 
+        v.patente, 
+        v.marca, 
+        v.modelo, 
+        ot.fallas_reportadas, 
+        ot.estado 
+      FROM ordenes_trabajo ot 
+      INNER JOIN clientes c ON ot.cliente_id = c.id 
+      INNER JOIN vehiculos v ON ot.vehiculo_id = v.id
+    `;
+
+    const [filas] = await pool.query(query);
+    res.json(filas);
+  } catch (error) {
+    console.error('Error al consultar las OTs:', error);
+    res.status(500).json({ error: 'Error al obtener la lista de órdenes de trabajo' });
   }
 });
 
