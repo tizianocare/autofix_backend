@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Nueva Orden de Trabajo - AutoFix</title>
+</head>
+<body>
+
+    <h2>Ingresar Vehículo al Taller</h2>
+
+    <!-- El atributo 'action' apuntará al archivo o ruta de tu backend. 'method' define cómo viajan los datos ocultos -->
+    <form action="http://localhost:3000/guardar_ot" method="POST">        
+        <!-- Datos básicos del vehículo -->
+        <label for="patente">Patente del Vehículo:</label>
+        <input type="text" id="patente" name="patente" required>
+        <br><br>
+
+        <!-- TAREA DEL SPRINT: Campo de texto amplio para las fallas -->
+        <label for="motivo">Motivo de Ingreso / Fallas Reportadas:</label><br>        
+        <!-- Usamos <textarea> en lugar de <input> para permitir múltiples líneas de texto -->
+        <textarea id="motivo" name="motivo_ingreso" rows="5" cols="60" required></textarea>
+        <br><br>
+
+        <!-- Botón para enviar la información -->
+        <button type="submit">Guardar Orden de Trabajo</button>
+
+    </form>
+
+</body>
+</html>
