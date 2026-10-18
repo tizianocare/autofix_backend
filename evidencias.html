@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoFix - Subir Evidencia Multimedia</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; padding: 20px; }
+    .card { max-width: 500px; margin: 0 auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+    h2 { color: #2c3e50; text-align: center; margin-bottom: 20px; }
+    label { font-weight: 600; display: block; margin-top: 15px; color: #34495e; }
+    input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    button { width: 100%; margin-top: 25px; background-color: #27ae60; color: white; border: none; padding: 12px; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    button:hover { background-color: #219150; }
+    #vista-previa { margin-top: 15px; text-align: center; }
+    #vista-previa img { max-width: 100%; max-height: 250px; border-radius: 6px; display: none; margin: 0 auto; }
+    .mensaje { margin-top: 15px; padding: 10px; border-radius: 4px; text-align: center; display: none; font-weight: bold; }
+    .exito { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>📸 Carga de Evidencia Multimedia</h2>
+
+    <form id="form-evidencia">
+      <!-- Número de OT -->
+      <label for="numero_ot">Número de OT:</label>
+      <input type="text" id="numero_ot" name="numero_ot" placeholder="Ej: OT-0001" required>
+
+      <!-- Selector de archivo / Captura de Cámara -->
+      <label for="archivo">Adjuntar Foto o Video de la Pieza:</label>
+      <input type="file" id="archivo" name="archivo" accept="image/*,video/*" capture="environment" required>
+
+      <!-- Vista previa de la imagen -->
+      <div id="vista-previa">
+        <img id="img-preview" alt="Vista previa de la evidencia">
+      </div>
+
+      <button type="submit">Cargar Evidencia</button>
+    </form>
+
+    <div id="mensaje-estado" class="mensaje"></div>
+  </div>
+
+  <script>
+    const formEvidencia = document.getElementById('form-evidencia');
+    const inputArchivo = document.getElementById('archivo');
+    const imgPreview = document.getElementById('img-preview');
+    const mensajeEstado = document.getElementById('mensaje-estado');
+
+    // Previsualización de la foto elegida
+    inputArchivo.addEventListener('change', () => {
+      const file = inputArchivo.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          imgPreview.src = e.target.result;
+          imgPreview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else {
+        imgPreview.style.display = 'none';
+      }
+    });
+
+    // Envío del formulario vía AJAX (FormData)
+    formEvidencia.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      mensajeEstado.style.display = 'none';
+
+      const formData = new FormData(formEvidencia);
+
+      try {
+        const respuesta = await fetch('http://localhost:3000/api/evidencias', {
+          method: 'POST',
+          body: formData
+        });
+
+        const resultado = await respuesta.json();
+
+        if (respuesta.ok) {
+          mensajeEstado.className = 'mensaje exito';
+          mensajeEstado.textContent = '¡Evidencia subida con éxito!';
+          mensajeEstado.style.display = 'block';
+          formEvidencia.reset();
+          imgPreview.style.display = 'none';
+        } else {
+          throw new Error(resultado.error || 'Error al subir la evidencia');
+        }
+      } catch (error) {
+        mensajeEstado.className = 'mensaje error';
+        mensajeEstado.textContent = error.message;
+        mensajeEstado.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
