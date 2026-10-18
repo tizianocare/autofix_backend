@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoFix Manager</title>
+  <style>
+    /* Estilos mínimos del modal (Sprint 2 - Tarjeta 2.1) */
+    #modal-ot { border: 1px solid #ccc; border-radius: 8px; padding: 20px; width: min(600px, 90vw); }
+    #modal-ot::backdrop { background: rgba(0, 0, 0, 0.5); }
+    #modal-detalle p { margin: 4px 0; }
+    #diagnostico_tecnico { width: 100%; box-sizing: border-box; margin-top: 6px; }
+    #msg-diagnostico { min-height: 1.2em; }
+    .acciones-modal { display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>📋 Panel de Órdenes de Trabajo Activas</h1>
+    <h2>AutoFix Manager</h2>
+  </header>
+
+  <div class="tabla-container">
+    <table>
+      <thead>
+        <tr>
+          <th>N° OT</th>
+          <th>Patente</th>
+          <th>Vehículo</th>
+          <th>Cliente</th>
+          <th>Fallas Reportadas</th>
+          <th>Estado Inicial</th>
+          <th>Diagnóstico</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-ordenes">
+        <!-- Las filas se generan desde app.js -->
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Modal de detalle de OT + formulario de diagnóstico técnico -->
+  <dialog id="modal-ot">
+    <h3 id="modal-titulo"></h3>
+    <div id="modal-detalle"></div>
+    <hr>
+    <form id="form-diagnostico">
+      <label for="diagnostico_tecnico"><strong>Diagnóstico técnico:</strong></label>
+      <textarea id="diagnostico_tecnico" rows="8" maxlength="5000" required
+        placeholder="Detallá las fallas encontradas en la revisión..."></textarea>
+      <p id="msg-diagnostico"></p>
+      <div class="acciones-modal">
+        <button type="submit">Guardar diagnóstico</button>
+        <button type="button" id="cerrar-modal">Cerrar</button>
+      </div>
+    </form>
+  </dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
