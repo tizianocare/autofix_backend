@@ -35,6 +35,14 @@ CREATE TABLE ordenes_trabajo (
     fecha_ingreso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
+-- 4. Tabla de Evidencias Multimedias (Sprint 2: Tarea 1 del SP2 2.2)
+CREATE TABLE IF NOT EISTS eXvidencias_multimedia (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    numero_ot VARCHAR(20) NOT NULL,
+    url_archivo VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (numero_ot) REFERENCES ordenes_trabajo(numero_ot) ON DELETE CASCADE
+);
     -- Relaciones
     CONSTRAINT fk_ot_cliente
         FOREIGN KEY (cliente_id)
