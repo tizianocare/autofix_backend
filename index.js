@@ -2,7 +2,8 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
-
+const fs = require('fs');
+const multer = require('multer');
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -231,3 +232,66 @@ pool.query('SELECT 1')
     console.error('No se pudo conectar a MySQL:', err.message);
     process.exit(1);
   });
+
+// ---------------------------------------------------------------
+// 8. Multer y el Endpoint para subir evidencia multimedia (Sprint 2 - Tarjeta 2.2)
+// ---------------------------------------------------------------
+
+// 📂 1. Servir la carpeta 'uploads' como archivos estáticos
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Asegurar que la carpeta 'uploads' exista
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// ⚙️ 2. Configuración de almacenamiento de Multer
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Generar un nombre único: ot_timestamp_nombreoriginal
+        const ot = req.body.numero_ot || 'evidencia';
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, `${ot}_${uniqueSuffix}${ext}`);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // Límite de 10 MB por archivo
+});
+
+// 📸 3. Endpoint POST para subir evidencia multimedia
+app.post('/api/evidencias', upload.single('archivo'), async (req, res) => {
+    const { numero_ot } = req.body;
+    
+    if (!numero_ot) {
+        return res.status(400).json({ error: 'El campo numero_ot es obligatorio.' });
+    }
+    
+    if (!req.file) {
+        return res.status(400).json({ error: 'No se seleccionó ningún archivo de imagen o video.' });
+    }
+
+    // Ruta relativa que se guardará en la base de datos (ej: /uploads/OT-0001_169700000.jpg)
+    const url_archivo = `/uploads/${req.file.filename}`;
+
+    try {
+        const query = 'INSERT INTO evidencias_multimedia (numero_ot, url_archivo) VALUES (?, ?)';
+        await pool.query(query, [numero_ot, url_archivo]);
+        
+        res.status(201).json({
+            mensaje: '¡Evidencia multimedia subida y asociada con éxito!',
+            numero_ot,
+            url_archivo
+        });
+    } catch (error) {
+        console.error('Error al guardar evidencia en la BD:', error);
+        res.status(500).json({ error: 'Error interno al asociar la evidencia.' });
+    }
+});
+
