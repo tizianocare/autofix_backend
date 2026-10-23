@@ -219,6 +219,9 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
   }
 });
 
+// Sprint 2 - Tarjeta 2.3: presupuesto de la OT
+app.use('/api/ordenes-trabajo', require('./rutas_presupuesto')(pool));
+
 // ---------------------------------------------------------------
 // 7. Iniciar el servidor verificando antes la conexión a la BD
 // ---------------------------------------------------------------
