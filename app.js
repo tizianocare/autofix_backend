@@ -30,7 +30,7 @@ async function obtenerYMostrarOrdenes() {
     const tbody = document.getElementById('tabla-ordenes');
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" style="text-align: center; color: #e74c3c; padding: 20px;">
+        <td colspan="8" style="text-align: center; color: #e74c3c; padding: 20px;">
           ❌ No se pudo conectar con el servidor. Asegurate de que "node index.js" esté corriendo.
         </td>
       </tr>
@@ -45,7 +45,7 @@ function renderizarOrdenes(ordenes) {
   if (!ordenes || ordenes.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" style="text-align: center; padding: 20px; color: #7f8c8d;">
+        <td colspan="8" style="text-align: center; padding: 20px; color: #7f8c8d;">
           No hay órdenes de trabajo activas en este momento.
         </td>
       </tr>
