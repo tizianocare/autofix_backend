@@ -66,6 +66,7 @@ function renderizarOrdenes(ordenes) {
       <td>${escapeHtml(ot.fallas_reportadas || 'Sin observaciones')}</td>
       <td><span class="estado-badge estado-${escapeHtml(estado.toLowerCase())}">${escapeHtml(estado)}</span></td>
       <td><button type="button" class="btn-diagnostico" data-numero-ot="${escapeHtml(ot.numero_ot)}">${textoBoton}</button></td>
+       <td><a href="presupuesto.html?ot=${encodeURIComponent(ot.numero_ot)}">Armar presupuesto</a></td>
     `;
 
     tbody.appendChild(fila);
