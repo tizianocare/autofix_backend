@@ -24,7 +24,7 @@ const pool = mysql.createPool({
 // ---------------------------------------------------------------
 // 2. Archivos del frontend (solo los necesarios, no el código del server)
 // ---------------------------------------------------------------
-const archivosPublicos = ['panel.html', 'nueva_ot.html', 'app.js'];
+   const archivosPublicos = ['panel.html', 'nueva_ot.html', 'app.js', 'presupuesto.html', 'presupuesto.js'];
 archivosPublicos.forEach((archivo) => {
   app.get('/' + archivo, (req, res) => res.sendFile(path.join(__dirname, archivo)));
 });
