@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presupuesto - AutoFix Manager</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 20px auto; padding: 0 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 6px; text-align: left; }
+    th { border-bottom: 2px solid #999; }
+    td input[type="text"] { width: 100%; box-sizing: border-box; }
+    td input[type="number"] { width: 100px; }
+    .acciones { margin: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+    .totales { text-align: right; margin-top: 12px; }
+    .total-final { font-size: 1.3em; font-weight: bold; }
+    #diagnostico-ot { background: #f4f4f4; color: #222; padding: 8px 12px; border-radius: 6px; white-space: pre-wrap; }
+    #mensaje { min-height: 1.2em; }
+  </style>
+</head>
+<body>
+
+  <p><a href="panel.html">← Volver al panel</a></p>
+  <h1>💰 Presupuesto preliminar</h1>
+
+  <div id="info-ot">Cargando orden de trabajo...</div>
+
+  <h3>Diagnóstico técnico</h3>
+  <div id="diagnostico-ot"></div>
+
+  <form id="form-presupuesto">
+    <h3>Ítems del presupuesto</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th>Descripción</th>
+          <th>Cantidad / Horas</th>
+          <th>Precio unitario</th>
+          <th>Subtotal</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="items"></tbody>
+    </table>
+
+    <div class="acciones">
+      <button type="button" id="btn-add-repuesto">+ Agregar repuesto</button>
+      <button type="button" id="btn-add-mano-obra">+ Agregar mano de obra</button>
+    </div>
+
+    <div class="totales">
+      <div>Repuestos: <span id="total-repuestos">$ 0,00</span></div>
+      <div>Mano de obra: <span id="total-mano-obra">$ 0,00</span></div>
+      <div class="total-final">Total: <span id="total-general">$ 0,00</span></div>
+    </div>
+
+    <p id="mensaje"></p>
+    <button type="submit" id="btn-guardar">Guardar presupuesto</button>
+  </form>
+
+  <script src="presupuesto.js"></script>
+</body>
+</html>
