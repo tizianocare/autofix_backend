@@ -69,3 +69,18 @@ CREATE TABLE IF NOT EXISTS detalles_presupuesto (
         REFERENCES ordenes_trabajo(numero_ot)
         ON DELETE CASCADE
 );
+
+-- Sprint 3.1: Tarea 1
+-- 1. Modificar columna estado para incluir CANCELADO
+ALTER TABLE ordenes_trabajo 
+MODIFY COLUMN estado ENUM('INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO') 
+DEFAULT 'INGRESADO';
+
+-- 2. Crear la tabla historial_estados
+CREATE TABLE IF NOT EXISTS historial_estados (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    numero_ot VARCHAR(20) NOT NULL,
+    estado_anterior VARCHAR(50) NOT NULL,
+    estado_nuevo VARCHAR(50) NOT NULL,
+    fecha_cambio TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
