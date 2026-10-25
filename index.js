@@ -289,6 +289,82 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
+// 👨‍🔧 TARJETA 3.2: Asignación de Mecánicos y Filtros
+// ---------------------------------------------------------------
+
+// 1. Endpoint para listar mecánicos activos
+app.get('/api/mecanicos', async (req, res) => {
+    try {
+        const [mecanicos] = await pool.query('SELECT id, nombre FROM mecanicos WHERE activo = TRUE ORDER BY nombre ASC');
+        res.json(mecanicos);
+    } catch (error) {
+        console.error('Error al obtener mecánicos:', error);
+        res.status(500).json({ error: 'Error al obtener la lista de mecánicos.' });
+    }
+});
+
+// 2. Endpoint PATCH para asignar/cambiar mecánico en una OT
+app.patch('/api/ordenes-trabajo/:numero_ot/mecanico', async (req, res) => {
+    const { numero_ot } = req.params;
+    const { mecanico_id } = req.body; // Puede ser un ID de mecánico o null para quitar asignación
+
+    try {
+        const [ots] = await pool.query('SELECT numero_ot FROM ordenes_trabajo WHERE numero_ot = ?', [numero_ot]);
+        
+        if (ots.length === 0) {
+            return res.status(404).json({ error: 'Orden de trabajo no encontrada.' });
+        }
+
+        await pool.query(
+            'UPDATE ordenes_trabajo SET mecanico_id = ? WHERE numero_ot = ?',
+            [mecanico_id || null, numero_ot]
+        );
+
+        res.json({ 
+            mensaje: `Mecánico actualizado correctamente para la OT ${numero_ot}.`, 
+            numero_ot, 
+            mecanico_id: mecanico_id || null 
+        });
+    } catch (error) {
+        console.error('Error al asignar mecánico:', error);
+        res.status(500).json({ error: 'Error interno al asignar el mecánico.' });
+    }
+});
+
+// 3. Reemplazar o actualizar GET /api/ordenes-trabajo para incluir JOIN con mecánicos y filtros (por estado y mecánico)
+app.get('/api/ordenes-trabajo', async (req, res) => {
+    const { estado, mecanico_id } = req.query;
+
+    try {
+        let sql = `
+            SELECT ot.*, m.nombre AS mecanico_nombre 
+            FROM ordenes_trabajo ot 
+            LEFT JOIN mecanicos m ON ot.mecanico_id = m.id 
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (estado) {
+            sql += ' AND ot.estado = ?';
+            params.push(estado);
+        }
+
+        if (mecanico_id) {
+            sql += ' AND ot.mecanico_id = ?';
+            params.push(mecanico_id);
+        }
+
+        sql += ' ORDER BY ot.id DESC';
+
+        const [filas] = await pool.query(sql, params);
+        res.json(filas);
+    } catch (error) {
+        console.error('Error al obtener órdenes de trabajo:', error);
+        res.status(500).json({ error: 'Error al obtener las órdenes de trabajo.' });
+    }
+});
+
+// ---------------------------------------------------------------
 // 7. Iniciar el servidor verificando antes la conexión a la BD
 // ---------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
