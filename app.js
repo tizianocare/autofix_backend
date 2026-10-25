@@ -4,6 +4,15 @@ const API_URL = 'http://localhost:3000/api/ordenes-trabajo';
 let ordenesCargadas = [];
 let otSeleccionada = null;
 
+// 🗺️ Transiciones de estado permitidas
+const SIGUIENTE_ESTADO = {
+    'INGRESADO': 'DIAGNOSTICO',
+    'DIAGNOSTICO': 'PRESUPUESTADO',
+    'PRESUPUESTADO': 'EN_REPARACION',
+    'EN_REPARACION': 'LISTO',
+    'LISTO': 'ENTREGADO'
+};
+
 // Evita que texto escrito por usuarios se interprete como HTML (protección XSS)
 function escapeHtml(valor) {
   return String(valor ?? '')
@@ -12,6 +21,33 @@ function escapeHtml(valor) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// 🔄 Función para cambiar de estado vía PATCH 
+async function cambiarEstado(numero_ot, nuevo_estado) {
+    if (!confirm(`¿Confirmas cambiar el estado de la OT ${numero_ot} a ${nuevo_estado}?`)) return;
+
+    try {
+        const respuesta = await fetch(`http://localhost:3000/api/ordenes-trabajo/${encodeURIComponent(numero_ot)}/estado`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ nuevo_estado })
+        });
+
+        const resultado = await respuesta.json();
+
+        if (respuesta.ok) {
+            alert(resultado.mensaje);
+            obtenerYMostrarOrdenes(); // Recargar la lista automáticamente
+        } else {
+            alert(`Error: ${resultado.error}`);
+        }
+    } catch (error) {
+        console.error('Error al cambiar el estado:', error);
+        alert('No se pudo conectar con el servidor.');
+    }
 }
 
 // ---------------------------------------------------------------
@@ -39,38 +75,53 @@ async function obtenerYMostrarOrdenes() {
 }
 
 function renderizarOrdenes(ordenes) {
-  const tbody = document.getElementById('tabla-ordenes');
-  tbody.innerHTML = '';
+    const tbody = document.getElementById('tabla-ordenes');
+    tbody.innerHTML = '';
 
-  if (!ordenes || ordenes.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="8" style="text-align: center; padding: 20px; color: #7f8c8d;">
-          No hay órdenes de trabajo activas en este momento.
-        </td>
-      </tr>
-    `;
-    return;
-  }
+    if (!ordenes || ordenes.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="10" class="text-center">No hay órdenes de trabajo activas en este momento.</td>
+            </tr>
+        `;
+        return;
+    }
 
-  ordenes.forEach((ot) => {
-    const fila = document.createElement('tr');
-    const estado = ot.estado || 'INGRESADO';
-    const textoBoton = ot.diagnostico_tecnico ? 'Ver / editar' : 'Cargar diagnóstico';
+    ordenes.forEach((ot) => {
+        const fila = document.createElement('tr');
+        const estado = ot.estado || 'INGRESADO';
+        const textoBoton = ot.diagnostico_tecnico ? 'Ver / editar' : 'Cargar diagnóstico';
+        const siguiente = SIGUIENTE_ESTADO[estado];
+        
+        let botonesAccion = '';
+        
+        if (siguiente) {
+            botonesAccion += `<button class="btn btn-sm btn-primary" onclick="cambiarEstado('${ot.numero_ot}', '${siguiente}')">Avanzar a ${siguiente}</button> `;
+        }
+        
+        if (estado !== 'ENTREGADO' && estado !== 'CANCELADO') {
+            botonesAccion += `<button class="btn btn-sm btn-danger" onclick="cambiarEstado('${ot.numero_ot}', 'CANCELADO')">Cancelar</button>`;
+        }
+        
+        if (estado === 'ENTREGADO' || estado === 'CANCELADO') {
+            botonesAccion = '<span class="text-muted">Sin acciones</span>';
+        }
 
-    fila.innerHTML = `
-      <td><strong>${escapeHtml(ot.numero_ot)}</strong></td>
-      <td><span class="patente-tag">${escapeHtml(ot.patente)}</span></td>
-      <td>${escapeHtml(ot.marca)} ${escapeHtml(ot.modelo)}</td>
-      <td>${escapeHtml(ot.cliente)}<br><small style="color: #7f8c8d;">${escapeHtml(ot.telefono)}</small></td>
-      <td>${escapeHtml(ot.fallas_reportadas || 'Sin observaciones')}</td>
-      <td><span class="estado-badge estado-${escapeHtml(estado.toLowerCase())}">${escapeHtml(estado)}</span></td>
-      <td><button type="button" class="btn-diagnostico" data-numero-ot="${escapeHtml(ot.numero_ot)}">${textoBoton}</button></td>
-       <td><a href="presupuesto.html?ot=${encodeURIComponent(ot.numero_ot)}">Armar presupuesto</a></td>
-    `;
-
-    tbody.appendChild(fila);
-  });
+        fila.innerHTML = `
+            <td>${escapeHtml(ot.numero_ot)}</td>
+            <td>${escapeHtml(ot.patente)}</td>
+            <td>${escapeHtml(ot.marca)}</td>
+            <td>${escapeHtml(ot.modelo)}</td>
+            <td>${escapeHtml(ot.cliente)}</td>
+            <td>${escapeHtml(ot.telefono)}</td>
+            <td>${escapeHtml(ot.fallas_reportadas || 'Sin observaciones')}</td>
+            <td><span class="badge badge-estado">${escapeHtml(estado)}</span></td>
+            <td><button class="btn btn-sm btn-info">${textoBoton}</button></td>
+            <td>${botonesAccion}</td>
+        `;
+        
+        tbody.appendChild(fila);
+    });
 }
 
 // ---------------------------------------------------------------
