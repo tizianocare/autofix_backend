@@ -5,13 +5,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AutoFix Manager</title>
   <style>
-    /* Estilos mínimos del modal (Sprint 2 - Tarjeta 2.1) */
-    #modal-ot { border: 1px solid #ccc; border-radius: 8px; padding: 20px; width: min(600px, 90vw); }
-    #modal-ot::backdrop { background: rgba(0, 0, 0, 0.5); }
-    #modal-detalle p { margin: 4px 0; }
-    #diagnostico_tecnico { width: 100%; box-sizing: border-box; margin-top: 6px; }
-    #msg-diagnostico { min-height: 1.2em; }
-    .acciones-modal { display: flex; gap: 8px; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f8f9fa;
+    }
+    header {
+      margin-bottom: 20px;
+    }
+    .filtros-container {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      background: #fff;
+      padding: 12px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .filtros-container select {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+    .tabla-container {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    th {
+      background-color: #f1f3f5;
+      color: #333;
+    }
+    .patente-tag {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: bold;
+    }
+    .estado-badge {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      background: #3498db;
+      color: white;
+    }
+
+    /* Estilos del modal (Sprint 2 - Tarjeta 2.1) */
+    #modal-ot {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 20px;
+      width: min(600px, 90vw);
+    }
+    #modal-ot::backdrop {
+      background: rgba(0, 0, 0, 0.5);
+    }
+    #modal-detalle p {
+      margin: 4px 0;
+    }
+    #diagnostico_tecnico {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 6px;
+    }
+    #msg-diagnostico {
+      min-height: 1.2em;
+    }
+    .acciones-modal {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -20,6 +98,24 @@
     <h1>📋 Panel de Órdenes de Trabajo Activas</h1>
     <h2>AutoFix Manager</h2>
   </header>
+
+  <!-- Contenedor de Filtros (Sprint 3 - Tarjeta 3.2) -->
+  <div class="filtros-container">
+    <select id="filtro-estado">
+      <option value="">Todos los estados</option>
+      <option value="INGRESADO">INGRESADO</option>
+      <option value="DIAGNOSTICO">DIAGNOSTICO</option>
+      <option value="PRESUPUESTADO">PRESUPUESTADO</option>
+      <option value="EN_REPARACION">EN_REPARACION</option>
+      <option value="LISTO">LISTO</option>
+      <option value="ENTREGADO">ENTREGADO</option>
+      <option value="CANCELADO">CANCELADO</option>
+    </select>
+
+    <select id="filtro-mecanico">
+      <option value="">Todos los mecánicos</option>
+    </select>
+  </div>
 
   <div class="tabla-container">
     <table>
@@ -30,13 +126,15 @@
           <th>Vehículo</th>
           <th>Cliente</th>
           <th>Fallas Reportadas</th>
-          <th>Estado Inicial</th>
+          <th>Estado</th>
+          <th>Mecánico</th>
           <th>Diagnóstico</th>
           <th>Presupuesto</th>
+          <th>Acciones de Estado</th>
         </tr>
       </thead>
       <tbody id="tabla-ordenes">
-        <!-- Las filas se generan desde app.js -->
+        <!-- Las filas se generan dinámicamente desde app2.js -->
       </tbody>
     </table>
   </div>
@@ -48,8 +146,7 @@
     <hr>
     <form id="form-diagnostico">
       <label for="diagnostico_tecnico"><strong>Diagnóstico técnico:</strong></label>
-      <textarea id="diagnostico_tecnico" rows="8" maxlength="5000" required
-        placeholder="Detallá las fallas encontradas en la revisión..."></textarea>
+      <textarea id="diagnostico_tecnico" rows="8" maxlength="5000" required placeholder="Detallá las fallas encontradas en la revisión..."></textarea>
       <p id="msg-diagnostico"></p>
       <div class="acciones-modal">
         <button type="submit">Guardar diagnóstico</button>
@@ -57,7 +154,11 @@
       </div>
     </form>
   </dialog>
-
-<script src="app.js"></script>
+  
+    <!-- Vinculación al archivo JS con las funcionalidades unificadas -->
+    <script src="app.js"></script>
+  
 </body>
 </html>
+
+
