@@ -1,8 +1,11 @@
 const express = require('express');
 
 const TIPOS = ['REPUESTO', 'MANO_DE_OBRA'];
-// Solo estas OT pasan automáticamente a PRESUPUESTADO (no se retrocede una OT ya en reparación, etc.)
-const ESTADOS_QUE_PASAN_A_PRESUPUESTADO = ['INGRESADO', 'EN_DIAGNOSTICO'];
+// Flujo de estados (alineado con TRANSICIONES_PERMITIDAS de index.js):
+// al guardar el presupuesto, solo una OT en DIAGNOSTICO pasa a PRESUPUESTADO.
+// Una OT en INGRESADO primero debe avanzar a DIAGNOSTICO; las cerradas no se editan.
+const ESTADO_PREVIO_A_PRESUPUESTO = 'DIAGNOSTICO';
+const ESTADOS_SIN_EDICION = ['ENTREGADO', 'CANCELADO'];
 
 const redondear2 = (n) => Math.round(n * 100) / 100;
 const aCentavos = (n) => Math.round(n * 100);
@@ -130,9 +133,13 @@ module.exports = function crearRutasPresupuesto(pool) {
         await conn.rollback();
         return res.status(404).json({ error: 'No existe una OT con ese número.' });
       }
-      if (ots[0].estado === 'ENTREGADO') {
+      if (ESTADOS_SIN_EDICION.includes(ots[0].estado)) {
         await conn.rollback();
-        return res.status(409).json({ error: 'No se puede modificar el presupuesto de una OT ya entregada.' });
+        return res.status(409).json({ error: `No se puede modificar el presupuesto de una OT en estado ${ots[0].estado}.` });
+      }
+      if (ots[0].estado === 'INGRESADO') {
+        await conn.rollback();
+        return res.status(409).json({ error: 'Primero pasá la OT a DIAGNOSTICO desde el panel para poder presupuestarla.' });
       }
 
       // Se borran los ítems anteriores y se insertan los nuevos
@@ -150,10 +157,15 @@ module.exports = function crearRutasPresupuesto(pool) {
 
       // Cambio de estado de la OT
       let estadoFinal = ots[0].estado;
-      if (ESTADOS_QUE_PASAN_A_PRESUPUESTADO.includes(estadoFinal)) {
+      if (estadoFinal === ESTADO_PREVIO_A_PRESUPUESTO) {
         await conn.query(
           "UPDATE ordenes_trabajo SET estado = 'PRESUPUESTADO' WHERE numero_ot = ?",
           [numero_ot]
+        );
+        // Trazabilidad (Tarjeta 3.1): el cambio automático también queda en el historial
+        await conn.query(
+          'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
+          [numero_ot, estadoFinal, 'PRESUPUESTADO']
         );
         estadoFinal = 'PRESUPUESTADO';
       }
