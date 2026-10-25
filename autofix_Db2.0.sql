@@ -84,3 +84,24 @@ CREATE TABLE IF NOT EXISTS historial_estados (
     estado_nuevo VARCHAR(50) NOT NULL,
     fecha_cambio TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Sprint 3.2: Tarea 1
+-- 1. Crear la tabla de mecánicos
+CREATE TABLE IF NOT EXISTS mecanicos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    activo BOOLEAN DEFAULT TRUE
+);
+
+-- 2. Agregar la columna mecanico_id a ordenes_trabajo (si no existe)
+ALTER TABLE ordenes_trabajo 
+ADD COLUMN mecanico_id INT NULL, 
+ADD CONSTRAINT fk_ot_mecanico FOREIGN KEY (mecanico_id) REFERENCES mecanicos(id) ON DELETE SET NULL;
+
+-- 3. Insertar mecánicos de prueba
+INSERT INTO mecanicos (nombre, activo) 
+VALUES 
+    ('Carlos Gómez', TRUE), 
+    ('Roberto Martínez', TRUE), 
+    ('Lucía Fernández', TRUE)
+ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
