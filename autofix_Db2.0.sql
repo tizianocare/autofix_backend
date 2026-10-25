@@ -1,3 +1,5 @@
+-- AutoFix Manager - Esquema completo (instalación desde cero)
+-- Incluye Sprints 1, 2 y 3 (tarjetas 3.1 y 3.2).
 CREATE DATABASE autofix_db;
 USE autofix_db;
 
@@ -24,14 +26,23 @@ CREATE TABLE vehiculos (
         ON DELETE CASCADE
 );
 
--- 3. Tabla de Órdenes de Trabajo (OT)
+-- 3. Tabla de Mecánicos (Sprint 3 - Tarjeta 3.2)
+CREATE TABLE mecanicos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL UNIQUE,
+    activo BOOLEAN DEFAULT TRUE
+);
+
+-- 4. Tabla de Órdenes de Trabajo (OT)
 CREATE TABLE ordenes_trabajo (
     numero_ot VARCHAR(20) PRIMARY KEY,
     cliente_id INT NOT NULL,
     vehiculo_id INT NOT NULL,
+    mecanico_id INT NULL,                -- Sprint 3 (Tarjeta 3.2)
     motivo_ingreso TEXT NOT NULL,
-    diagnostico_tecnico TEXT NULL,  -- Sprint 2 (Tarjeta 2.1)
-    estado ENUM('INGRESADO', 'EN_DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO_PARA_RETIRAR', 'ENTREGADO') DEFAULT 'INGRESADO',
+    diagnostico_tecnico TEXT NULL,       -- Sprint 2 (Tarjeta 2.1)
+    -- Sprint 3 (Tarjeta 3.1): estados finales del flujo del taller
+    estado ENUM('INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO') DEFAULT 'INGRESADO',
     fecha_ingreso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -41,11 +52,15 @@ CREATE TABLE ordenes_trabajo (
         REFERENCES clientes(id),
     CONSTRAINT fk_ot_vehiculo
         FOREIGN KEY (vehiculo_id)
-        REFERENCES vehiculos(id)
+        REFERENCES vehiculos(id),
+    CONSTRAINT fk_ot_mecanico
+        FOREIGN KEY (mecanico_id)
+        REFERENCES mecanicos(id)
+        ON DELETE SET NULL
 );
 
--- 4. Tabla de Evidencias Multimedia (Sprint 2 - Tarjeta 2.2)
-CREATE TABLE IF NOT EXISTS evidencias_multimedia (
+-- 5. Tabla de Evidencias Multimedia (Sprint 2 - Tarjeta 2.2)
+CREATE TABLE evidencias_multimedia (
     id INT AUTO_INCREMENT PRIMARY KEY,
     numero_ot VARCHAR(20) NOT NULL,
     url_archivo VARCHAR(255) NOT NULL,
@@ -54,8 +69,8 @@ CREATE TABLE IF NOT EXISTS evidencias_multimedia (
     FOREIGN KEY (numero_ot) REFERENCES ordenes_trabajo(numero_ot) ON DELETE CASCADE
 );
 
--- 5. Tabla de Detalle del Presupuesto (Sprint 2 - Tarjeta 2.3)
-CREATE TABLE IF NOT EXISTS detalles_presupuesto (
+-- 6. Tabla de Detalle del Presupuesto (Sprint 2 - Tarjeta 2.3)
+CREATE TABLE detalles_presupuesto (
     id INT AUTO_INCREMENT PRIMARY KEY,
     numero_ot VARCHAR(20) NOT NULL,
     tipo ENUM('REPUESTO', 'MANO_DE_OBRA') NOT NULL DEFAULT 'REPUESTO',
@@ -70,38 +85,23 @@ CREATE TABLE IF NOT EXISTS detalles_presupuesto (
         ON DELETE CASCADE
 );
 
--- Sprint 3.1: Tarea 1
--- 1. Modificar columna estado para incluir CANCELADO
-ALTER TABLE ordenes_trabajo 
-MODIFY COLUMN estado ENUM('INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO') 
-DEFAULT 'INGRESADO';
-
--- 2. Crear la tabla historial_estados
-CREATE TABLE IF NOT EXISTS historial_estados (
+-- 7. Historial de cambios de estado (Sprint 3 - Tarjeta 3.1)
+CREATE TABLE historial_estados (
     id INT AUTO_INCREMENT PRIMARY KEY,
     numero_ot VARCHAR(20) NOT NULL,
     estado_anterior VARCHAR(50) NOT NULL,
     estado_nuevo VARCHAR(50) NOT NULL,
-    fecha_cambio TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_cambio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_historial_ot
+        FOREIGN KEY (numero_ot)
+        REFERENCES ordenes_trabajo(numero_ot)
+        ON DELETE CASCADE
 );
 
--- Sprint 3.2: Tarea 1
--- 1. Crear la tabla de mecánicos
-CREATE TABLE IF NOT EXISTS mecanicos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,
-    activo BOOLEAN DEFAULT TRUE
-);
-
--- 2. Agregar la columna mecanico_id a ordenes_trabajo (si no existe)
-ALTER TABLE ordenes_trabajo 
-ADD COLUMN mecanico_id INT NULL, 
-ADD CONSTRAINT fk_ot_mecanico FOREIGN KEY (mecanico_id) REFERENCES mecanicos(id) ON DELETE SET NULL;
-
--- 3. Insertar mecánicos de prueba
-INSERT INTO mecanicos (nombre, activo) 
-VALUES 
-    ('Carlos Gómez', TRUE), 
-    ('Roberto Martínez', TRUE), 
-    ('Lucía Fernández', TRUE)
-ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
+-- Datos iniciales: mecánicos de prueba (INSERT IGNORE evita duplicados gracias al UNIQUE)
+INSERT IGNORE INTO mecanicos (nombre, activo)
+VALUES
+    ('Carlos Gómez', TRUE),
+    ('Roberto Martínez', TRUE),
+    ('Lucía Fernández', TRUE);
