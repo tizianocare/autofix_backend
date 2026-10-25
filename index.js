@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -24,19 +25,37 @@ const pool = mysql.createPool({
 // ---------------------------------------------------------------
 // 2. Archivos del frontend (solo los necesarios, no el código del server)
 // ---------------------------------------------------------------
-   const archivosPublicos = ['panel.html', 'nueva_ot.html', 'app.js', 'presupuesto.html', 'presupuesto.js'];
+const archivosPublicos = [
+  'panel.html',
+  'nueva_ot.html',
+  'app.js',
+  'presupuesto.html',
+  'presupuesto.js',
+  'evidencias.html'
+];
 archivosPublicos.forEach((archivo) => {
   app.get('/' + archivo, (req, res) => res.sendFile(path.join(__dirname, archivo)));
 });
 app.get('/', (req, res) => res.redirect('/panel.html'));
 
 // ---------------------------------------------------------------
-// 3. Validaciones
+// 3. Validaciones y flujo de estados
 // ---------------------------------------------------------------
 // Acepta patente Mercosur (AA123CD) y formato anterior (ABC123)
 const regexPatente = /^([A-Z]{2}\d{3}[A-Z]{2}|[A-Z]{3}\d{3})$/;
 const regexTelefono = /^\+?\d{7,15}$/;
-const ESTADOS = ['INGRESADO', 'EN_DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO_PARA_RETIRAR', 'ENTREGADO'];
+
+// Transiciones permitidas (Sprint 3 - Tarjeta 3.1). Deben coincidir con el ENUM de la BD.
+const TRANSICIONES_PERMITIDAS = {
+  INGRESADO: ['DIAGNOSTICO', 'CANCELADO'],
+  DIAGNOSTICO: ['PRESUPUESTADO', 'CANCELADO'],
+  PRESUPUESTADO: ['EN_REPARACION', 'CANCELADO'],
+  EN_REPARACION: ['LISTO', 'CANCELADO'],
+  LISTO: ['ENTREGADO'],
+  ENTREGADO: [],
+  CANCELADO: []
+};
+const ESTADOS = Object.keys(TRANSICIONES_PERMITIDAS);
 
 // ---------------------------------------------------------------
 // 4. POST: crear Orden de Trabajo (cliente + vehículo + OT en una transacción)
@@ -139,12 +158,19 @@ app.post('/api/ordenes-trabajo', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
-// 5. GET: listar OTs (motivo_ingreso se devuelve como fallas_reportadas
-//    para que app.js funcione sin cambios)
+// 5. GET: listar OTs con cliente, vehículo y mecánico.
+//    Filtros opcionales: ?estado=...&mecanico_id=...
+//    (motivo_ingreso se devuelve como fallas_reportadas para el panel)
 // ---------------------------------------------------------------
 app.get('/api/ordenes-trabajo', async (req, res) => {
+  const { estado, mecanico_id } = req.query;
+
+  if (estado && !ESTADOS.includes(estado)) {
+    return res.status(400).json({ error: `Estado inválido. Valores permitidos: ${ESTADOS.join(', ')}` });
+  }
+
   try {
-    const [filas] = await pool.query(`
+    let sql = `
       SELECT
         ot.numero_ot,
         c.nombre_completo AS cliente,
@@ -155,12 +181,28 @@ app.get('/api/ordenes-trabajo', async (req, res) => {
         ot.motivo_ingreso AS fallas_reportadas,
         ot.diagnostico_tecnico,
         ot.estado,
-        ot.fecha_ingreso
+        ot.fecha_ingreso,
+        ot.mecanico_id,
+        m.nombre AS mecanico_nombre
       FROM ordenes_trabajo ot
       INNER JOIN clientes c ON ot.cliente_id = c.id
       INNER JOIN vehiculos v ON ot.vehiculo_id = v.id
-      ORDER BY ot.fecha_ingreso DESC, ot.numero_ot DESC
-    `);
+      LEFT JOIN mecanicos m ON ot.mecanico_id = m.id
+      WHERE 1=1`;
+    const params = [];
+
+    if (estado) {
+      sql += ' AND ot.estado = ?';
+      params.push(estado);
+    }
+    if (mecanico_id) {
+      sql += ' AND ot.mecanico_id = ?';
+      params.push(mecanico_id);
+    }
+
+    sql += ' ORDER BY ot.fecha_ingreso DESC, ot.numero_ot DESC';
+
+    const [filas] = await pool.query(sql, params);
     res.json(filas);
   } catch (error) {
     console.error('Error al consultar las OTs:', error);
@@ -197,175 +239,205 @@ app.put('/api/ordenes-trabajo/:numero_ot/diagnostico', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
-// 6. PATCH: cambiar el estado de una OT
+// 6. PATCH: cambiar el estado de una OT con validación e historial
+//    (Sprint 3 - Tarjeta 3.1). Cambio + historial en una transacción.
 // ---------------------------------------------------------------
 app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
-  const { estado } = req.body;
-  if (!ESTADOS.includes(estado)) {
-    return res.status(400).json({ error: `Estado inválido. Valores permitidos: ${ESTADOS.join(', ')}` });
+  const { numero_ot } = req.params;
+  const nuevo_estado = req.body.nuevo_estado ?? req.body.estado;
+
+  if (!nuevo_estado) {
+    return res.status(400).json({ error: 'El campo nuevo_estado es obligatorio.' });
   }
+
+  const conn = await pool.getConnection();
   try {
-    const [resultado] = await pool.query(
-      'UPDATE ordenes_trabajo SET estado = ? WHERE numero_ot = ?',
-      [estado, req.params.numero_ot]
+    await conn.beginTransaction();
+
+    const [ots] = await conn.query(
+      'SELECT estado FROM ordenes_trabajo WHERE numero_ot = ? FOR UPDATE',
+      [numero_ot]
     );
-    if (resultado.affectedRows === 0) {
-      return res.status(404).json({ error: 'No existe una OT con ese número.' });
+    if (ots.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Orden de Trabajo no encontrada.' });
     }
-    res.json({ mensaje: 'Estado actualizado', numero_ot: req.params.numero_ot, estado });
+
+    const estado_actual = ots[0].estado;
+    const permitidos = TRANSICIONES_PERMITIDAS[estado_actual] || [];
+    if (!permitidos.includes(nuevo_estado)) {
+      await conn.rollback();
+      return res.status(400).json({
+        error: `Transición inválida: no se puede cambiar de '${estado_actual}' a '${nuevo_estado}'.`
+      });
+    }
+
+    await conn.query('UPDATE ordenes_trabajo SET estado = ? WHERE numero_ot = ?', [nuevo_estado, numero_ot]);
+    await conn.query(
+      'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
+      [numero_ot, estado_actual, nuevo_estado]
+    );
+
+    await conn.commit();
+
+    res.json({
+      mensaje: `Estado de ${numero_ot} actualizado con éxito a '${nuevo_estado}'.`,
+      numero_ot,
+      estado_anterior: estado_actual,
+      nuevo_estado
+    });
   } catch (error) {
-    console.error('Error al actualizar el estado:', error);
-    res.status(500).json({ error: 'Error al actualizar el estado de la orden' });
+    await conn.rollback();
+    console.error('Error al actualizar estado:', error);
+    res.status(500).json({ error: 'Error interno al procesar el cambio de estado.' });
+  } finally {
+    conn.release();
   }
 });
 
-// Sprint 2 - Tarjeta 2.3: presupuesto de la OT
+// ---------------------------------------------------------------
+// 7. Mecánicos (Sprint 3 - Tarjeta 3.2)
+// ---------------------------------------------------------------
+app.get('/api/mecanicos', async (req, res) => {
+  try {
+    const [mecanicos] = await pool.query(
+      'SELECT id, nombre FROM mecanicos WHERE activo = TRUE ORDER BY nombre ASC'
+    );
+    res.json(mecanicos);
+  } catch (error) {
+    console.error('Error al obtener mecánicos:', error);
+    res.status(500).json({ error: 'Error al obtener la lista de mecánicos.' });
+  }
+});
+
+// Asignar / cambiar / quitar (null) el mecánico de una OT
+app.patch('/api/ordenes-trabajo/:numero_ot/mecanico', async (req, res) => {
+  const { numero_ot } = req.params;
+  const mecanico_id = req.body.mecanico_id ? Number(req.body.mecanico_id) : null;
+
+  if (req.body.mecanico_id && !Number.isInteger(mecanico_id)) {
+    return res.status(400).json({ error: 'mecanico_id inválido.' });
+  }
+
+  try {
+    const [ots] = await pool.query('SELECT numero_ot FROM ordenes_trabajo WHERE numero_ot = ?', [numero_ot]);
+    if (ots.length === 0) {
+      return res.status(404).json({ error: 'Orden de trabajo no encontrada.' });
+    }
+
+    if (mecanico_id !== null) {
+      const [mecanicos] = await pool.query(
+        'SELECT id FROM mecanicos WHERE id = ? AND activo = TRUE',
+        [mecanico_id]
+      );
+      if (mecanicos.length === 0) {
+        return res.status(400).json({ error: 'El mecánico indicado no existe o está inactivo.' });
+      }
+    }
+
+    await pool.query('UPDATE ordenes_trabajo SET mecanico_id = ? WHERE numero_ot = ?', [mecanico_id, numero_ot]);
+
+    res.json({
+      mensaje: `Mecánico actualizado correctamente para la OT ${numero_ot}.`,
+      numero_ot,
+      mecanico_id
+    });
+  } catch (error) {
+    console.error('Error al asignar mecánico:', error);
+    res.status(500).json({ error: 'Error interno al asignar el mecánico.' });
+  }
+});
+
+// ---------------------------------------------------------------
+// 8. Presupuesto de la OT (Sprint 2 - Tarjeta 2.3)
+// ---------------------------------------------------------------
 app.use('/api/ordenes-trabajo', require('./rutas_presupuesto')(pool));
 
-// Transiciones permitidas (sin saltos ilógicos)
-const TRANSICIONES_PERMITIDAS = {
-    'INGRESADO': ['DIAGNOSTICO', 'CANCELADO'],
-    'DIAGNOSTICO': ['PRESUPUESTADO', 'CANCELADO'],
-    'PRESUPUESTADO': ['EN_REPARACION', 'CANCELADO'],
-    'EN_REPARACION': ['LISTO', 'CANCELADO'],
-    'LISTO': ['ENTREGADO'],
-    'ENTREGADO': [],
-    'CANCELADO': []
-};
+// ---------------------------------------------------------------
+// 9. Evidencia multimedia con Multer (Sprint 2 - Tarjeta 2.2)
+// ---------------------------------------------------------------
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadDir));
 
-// 🔄 Endpoint PATCH: Cambiar estado con validación e historial
-app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
-    const { numero_ot } = req.params;
-    const { nuevo_estado } = req.body;
+const EXTENSIONES_PERMITIDAS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.webm'];
 
-    if (!nuevo_estado) {
-        return res.status(400).json({ error: 'El campo nuevo_estado es obligatorio.' });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    // numero_ot se limpia para que no pueda contener rutas (../) en el nombre del archivo
+    const ot = String(req.body.numero_ot || 'evidencia').replace(/[^A-Za-z0-9_-]/g, '');
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${ot}_${uniqueSuffix}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB por archivo
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const esMultimedia = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
+    if (esMultimedia && EXTENSIONES_PERMITIDAS.includes(ext)) {
+      return cb(null, true);
+    }
+    cb(new Error('Solo se permiten imágenes o videos (jpg, png, webp, gif, mp4, mov, webm).'));
+  }
+});
+
+app.post('/api/evidencias', (req, res) => {
+  upload.single('archivo')(req, res, async (err) => {
+    // Errores de Multer (tamaño, tipo de archivo) devueltos como JSON
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'El archivo supera el máximo de 10 MB.' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+
+    const { numero_ot } = req.body;
+
+    if (!numero_ot) {
+      if (req.file) fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ error: 'El campo numero_ot es obligatorio.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se seleccionó ningún archivo de imagen o video.' });
     }
 
     try {
-        // 1. Obtener estado actual
-        const [ots] = await pool.query(
-            'SELECT estado FROM ordenes_trabajo WHERE numero_ot = ?',
-            [numero_ot]
-        );
+      // Si la OT no existe, se descarta el archivo para no dejar huérfanos en /uploads
+      const [ots] = await pool.query('SELECT numero_ot FROM ordenes_trabajo WHERE numero_ot = ?', [numero_ot]);
+      if (ots.length === 0) {
+        fs.unlink(req.file.path, () => {});
+        return res.status(404).json({ error: 'No existe una OT con ese número.' });
+      }
 
-        if (ots.length === 0) {
-            return res.status(404).json({ error: 'Orden de Trabajo no encontrada.' });
-        }
+      // Ruta relativa que se guarda en la BD (ej: /uploads/OT-0001_169700000-123.jpg)
+      const url_archivo = `/uploads/${req.file.filename}`;
+      await pool.query(
+        'INSERT INTO evidencias_multimedia (numero_ot, url_archivo) VALUES (?, ?)',
+        [numero_ot, url_archivo]
+      );
 
-        const estado_actual = ots[0].estado;
-
-        // 2. Validar que la transición sea permitida
-        const permitidos = TRANSICIONES_PERMITIDAS[estado_actual] || [];
-        if (!permitidos.includes(nuevo_estado)) {
-            return res.status(400).json({ 
-                error: `Transición inválida: No se puede cambiar de '${estado_actual}' a '${nuevo_estado}'.` 
-            });
-        }
-
-        // 3. Actualizar estado en ordenes_trabajo
-        await pool.query(
-            'UPDATE ordenes_trabajo SET estado = ? WHERE numero_ot = ?',
-            [nuevo_estado, numero_ot]
-        );
-
-        // 4. Guardar registro en la tabla historial_estados
-        await pool.query(
-            'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
-            [numero_ot, estado_actual, nuevo_estado]
-        );
-
-        res.json({ 
-            mensaje: `Estado de ${numero_ot} actualizado con éxito a '${nuevo_estado}'.`, 
-            numero_ot, 
-            estado_anterior: estado_actual, 
-            nuevo_estado 
-        });
-
+      res.status(201).json({
+        mensaje: '¡Evidencia multimedia subida y asociada con éxito!',
+        numero_ot,
+        url_archivo
+      });
     } catch (error) {
-        console.error('Error al actualizar estado:', error);
-        res.status(500).json({ error: 'Error interno al procesar el cambio de estado.' });
+      fs.unlink(req.file.path, () => {});
+      console.error('Error al guardar evidencia en la BD:', error);
+      res.status(500).json({ error: 'Error interno al asociar la evidencia.' });
     }
+  });
 });
 
 // ---------------------------------------------------------------
-// 👨‍🔧 TARJETA 3.2: Asignación de Mecánicos y Filtros
-// ---------------------------------------------------------------
-
-// 1. Endpoint para listar mecánicos activos
-app.get('/api/mecanicos', async (req, res) => {
-    try {
-        const [mecanicos] = await pool.query('SELECT id, nombre FROM mecanicos WHERE activo = TRUE ORDER BY nombre ASC');
-        res.json(mecanicos);
-    } catch (error) {
-        console.error('Error al obtener mecánicos:', error);
-        res.status(500).json({ error: 'Error al obtener la lista de mecánicos.' });
-    }
-});
-
-// 2. Endpoint PATCH para asignar/cambiar mecánico en una OT
-app.patch('/api/ordenes-trabajo/:numero_ot/mecanico', async (req, res) => {
-    const { numero_ot } = req.params;
-    const { mecanico_id } = req.body; // Puede ser un ID de mecánico o null para quitar asignación
-
-    try {
-        const [ots] = await pool.query('SELECT numero_ot FROM ordenes_trabajo WHERE numero_ot = ?', [numero_ot]);
-        
-        if (ots.length === 0) {
-            return res.status(404).json({ error: 'Orden de trabajo no encontrada.' });
-        }
-
-        await pool.query(
-            'UPDATE ordenes_trabajo SET mecanico_id = ? WHERE numero_ot = ?',
-            [mecanico_id || null, numero_ot]
-        );
-
-        res.json({ 
-            mensaje: `Mecánico actualizado correctamente para la OT ${numero_ot}.`, 
-            numero_ot, 
-            mecanico_id: mecanico_id || null 
-        });
-    } catch (error) {
-        console.error('Error al asignar mecánico:', error);
-        res.status(500).json({ error: 'Error interno al asignar el mecánico.' });
-    }
-});
-
-// 3. Reemplazar o actualizar GET /api/ordenes-trabajo para incluir JOIN con mecánicos y filtros (por estado y mecánico)
-app.get('/api/ordenes-trabajo', async (req, res) => {
-    const { estado, mecanico_id } = req.query;
-
-    try {
-        let sql = `
-            SELECT ot.*, m.nombre AS mecanico_nombre 
-            FROM ordenes_trabajo ot 
-            LEFT JOIN mecanicos m ON ot.mecanico_id = m.id 
-            WHERE 1=1
-        `;
-        const params = [];
-
-        if (estado) {
-            sql += ' AND ot.estado = ?';
-            params.push(estado);
-        }
-
-        if (mecanico_id) {
-            sql += ' AND ot.mecanico_id = ?';
-            params.push(mecanico_id);
-        }
-
-        sql += ' ORDER BY ot.id DESC';
-
-        const [filas] = await pool.query(sql, params);
-        res.json(filas);
-    } catch (error) {
-        console.error('Error al obtener órdenes de trabajo:', error);
-        res.status(500).json({ error: 'Error al obtener las órdenes de trabajo.' });
-    }
-});
-
-// ---------------------------------------------------------------
-// 7. Iniciar el servidor verificando antes la conexión a la BD
+// 10. Iniciar el servidor verificando antes la conexión a la BD
 // ---------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
 pool.query('SELECT 1')
@@ -377,66 +449,3 @@ pool.query('SELECT 1')
     console.error('No se pudo conectar a MySQL:', err.message);
     process.exit(1);
   });
-
-// ---------------------------------------------------------------
-// 8. Multer y el Endpoint para subir evidencia multimedia (Sprint 2 - Tarjeta 2.2)
-// ---------------------------------------------------------------
-
-// 📂 1. Servir la carpeta 'uploads' como archivos estáticos
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// Asegurar que la carpeta 'uploads' exista
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// ⚙️ 2. Configuración de almacenamiento de Multer
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/');
-    },
-    filename: (req, file, cb) => {
-        // Generar un nombre único: ot_timestamp_nombreoriginal
-        const ot = req.body.numero_ot || 'evidencia';
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        cb(null, `${ot}_${uniqueSuffix}${ext}`);
-    }
-});
-
-const upload = multer({
-    storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // Límite de 10 MB por archivo
-});
-
-// 📸 3. Endpoint POST para subir evidencia multimedia
-app.post('/api/evidencias', upload.single('archivo'), async (req, res) => {
-    const { numero_ot } = req.body;
-    
-    if (!numero_ot) {
-        return res.status(400).json({ error: 'El campo numero_ot es obligatorio.' });
-    }
-    
-    if (!req.file) {
-        return res.status(400).json({ error: 'No se seleccionó ningún archivo de imagen o video.' });
-    }
-
-    // Ruta relativa que se guardará en la base de datos (ej: /uploads/OT-0001_169700000.jpg)
-    const url_archivo = `/uploads/${req.file.filename}`;
-
-    try {
-        const query = 'INSERT INTO evidencias_multimedia (numero_ot, url_archivo) VALUES (?, ?)';
-        await pool.query(query, [numero_ot, url_archivo]);
-        
-        res.status(201).json({
-            mensaje: '¡Evidencia multimedia subida y asociada con éxito!',
-            numero_ot,
-            url_archivo
-        });
-    } catch (error) {
-        console.error('Error al guardar evidencia en la BD:', error);
-        res.status(500).json({ error: 'Error interno al asociar la evidencia.' });
-    }
-});
-
