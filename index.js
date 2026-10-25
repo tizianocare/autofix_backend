@@ -222,6 +222,72 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
 // Sprint 2 - Tarjeta 2.3: presupuesto de la OT
 app.use('/api/ordenes-trabajo', require('./rutas_presupuesto')(pool));
 
+// Transiciones permitidas (sin saltos ilógicos)
+const TRANSICIONES_PERMITIDAS = {
+    'INGRESADO': ['DIAGNOSTICO', 'CANCELADO'],
+    'DIAGNOSTICO': ['PRESUPUESTADO', 'CANCELADO'],
+    'PRESUPUESTADO': ['EN_REPARACION', 'CANCELADO'],
+    'EN_REPARACION': ['LISTO', 'CANCELADO'],
+    'LISTO': ['ENTREGADO'],
+    'ENTREGADO': [],
+    'CANCELADO': []
+};
+
+// 🔄 Endpoint PATCH: Cambiar estado con validación e historial
+app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
+    const { numero_ot } = req.params;
+    const { nuevo_estado } = req.body;
+
+    if (!nuevo_estado) {
+        return res.status(400).json({ error: 'El campo nuevo_estado es obligatorio.' });
+    }
+
+    try {
+        // 1. Obtener estado actual
+        const [ots] = await pool.query(
+            'SELECT estado FROM ordenes_trabajo WHERE numero_ot = ?',
+            [numero_ot]
+        );
+
+        if (ots.length === 0) {
+            return res.status(404).json({ error: 'Orden de Trabajo no encontrada.' });
+        }
+
+        const estado_actual = ots[0].estado;
+
+        // 2. Validar que la transición sea permitida
+        const permitidos = TRANSICIONES_PERMITIDAS[estado_actual] || [];
+        if (!permitidos.includes(nuevo_estado)) {
+            return res.status(400).json({ 
+                error: `Transición inválida: No se puede cambiar de '${estado_actual}' a '${nuevo_estado}'.` 
+            });
+        }
+
+        // 3. Actualizar estado en ordenes_trabajo
+        await pool.query(
+            'UPDATE ordenes_trabajo SET estado = ? WHERE numero_ot = ?',
+            [nuevo_estado, numero_ot]
+        );
+
+        // 4. Guardar registro en la tabla historial_estados
+        await pool.query(
+            'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
+            [numero_ot, estado_actual, nuevo_estado]
+        );
+
+        res.json({ 
+            mensaje: `Estado de ${numero_ot} actualizado con éxito a '${nuevo_estado}'.`, 
+            numero_ot, 
+            estado_anterior: estado_actual, 
+            nuevo_estado 
+        });
+
+    } catch (error) {
+        console.error('Error al actualizar estado:', error);
+        res.status(500).json({ error: 'Error interno al procesar el cambio de estado.' });
+    }
+});
+
 // ---------------------------------------------------------------
 // 7. Iniciar el servidor verificando antes la conexión a la BD
 // ---------------------------------------------------------------
