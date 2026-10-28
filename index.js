@@ -121,9 +121,12 @@ app.post('/api/ordenes-trabajo', async (req, res) => {
        FROM ordenes_trabajo`
     );
 
+    // MySQL puede devolver este valor como texto: se convierte a número para SUMAR (no concatenar)
+    const base = Number(siguiente);
+
     let numero_ot = null;
     for (let intento = 0; intento < 5 && !numero_ot; intento++) {
-      const candidato = `OT-${String(siguiente + intento).padStart(4, '0')}`;
+      const candidato = `OT-${String(base + intento).padStart(4, '0')}`;
       try {
         await conn.query(
           'INSERT INTO ordenes_trabajo (numero_ot, cliente_id, vehiculo_id, motivo_ingreso) VALUES (?, ?, ?, ?)',
