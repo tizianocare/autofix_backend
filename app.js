@@ -158,6 +158,11 @@ function renderizarOrdenes(ordenes) {
     const numeroOt = escapeHtml(ot.numero_ot);
     const textoBoton = ot.diagnostico_tecnico ? 'Ver / editar' : 'Cargar diagnóstico';
 
+    // Mismo enlace, distinto uso según la etapa (Tarjeta 3.3)
+    let textoPresupuesto = 'Armar presupuesto';
+    if (estado === 'EN_REPARACION' || estado === 'LISTO') textoPresupuesto = 'Checklist de reparación';
+    if (estado === 'ENTREGADO' || estado === 'CANCELADO') textoPresupuesto = 'Ver presupuesto';
+
     // Botones de cambio de estado (los clics se manejan por delegación más abajo)
     const siguiente = SIGUIENTE_ESTADO[estado];
     let botonesEstado = '';
@@ -189,7 +194,7 @@ function renderizarOrdenes(ordenes) {
       <td><span class="estado-badge">${escapeHtml(estado)}</span></td>
       <td>${selectorMecanicoHtml}</td>
       <td><button type="button" class="btn-diagnostico" data-numero-ot="${numeroOt}">${textoBoton}</button></td>
-      <td><a href="presupuesto.html?ot=${encodeURIComponent(ot.numero_ot)}">Armar presupuesto</a></td>
+      <td><a href="presupuesto.html?ot=${encodeURIComponent(ot.numero_ot)}">${textoPresupuesto}</a></td>
       <td>${botonesEstado}</td>
     `;
 
