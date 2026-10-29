@@ -275,6 +275,29 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
       });
     }
 
+    // Reglas que dependen de los ítems del presupuesto (Sprint 3 - Tarjeta 3.3)
+    if (nuevo_estado === 'PRESUPUESTADO' || nuevo_estado === 'LISTO') {
+      const [[conteo]] = await conn.query(
+        `SELECT COUNT(*) AS total, COALESCE(SUM(completado = 0), 0) AS pendientes
+         FROM detalles_presupuesto
+         WHERE numero_ot = ?`,
+        [numero_ot]
+      );
+      const total = Number(conteo.total);
+      const pendientes = Number(conteo.pendientes); // SUM devuelve texto: se convierte
+
+      if (nuevo_estado === 'PRESUPUESTADO' && total === 0) {
+        await conn.rollback();
+        return res.status(400).json({ error: 'No se puede pasar a PRESUPUESTADO sin armar antes el presupuesto.' });
+      }
+      if (nuevo_estado === 'LISTO' && pendientes > 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: `No se puede pasar a LISTO: quedan ${pendientes} de ${total} ítems pendientes en el checklist.`
+        });
+      }
+    }
+
     await conn.query('UPDATE ordenes_trabajo SET estado = ? WHERE numero_ot = ?', [nuevo_estado, numero_ot]);
     await conn.query(
       'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
