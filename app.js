@@ -10,9 +10,19 @@ const SIGUIENTE_ESTADO = {
   INGRESADO: 'DIAGNOSTICO',
   DIAGNOSTICO: 'PRESUPUESTADO',
   PRESUPUESTADO: 'EN_REPARACION',
-  EN_REPARACION: 'LISTO',
-  LISTO: 'ENTREGADO'
+  EN_REPARACION: 'LISTO'
+  // LISTO -> ENTREGADO no está acá: se hace con "Registrar entrega" (Tarjeta 3.4)
 };
+
+// Estados desde los que se puede cancelar (igual que TRANSICIONES_PERMITIDAS de index.js)
+const PUEDE_CANCELAR = ['INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION'];
+
+const formatoMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
+
+function formatearFecha(valor) {
+  if (!valor) return '';
+  return new Date(valor).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 // Función para sanitizar HTML (XSS)
 function escapeHtml(valor) {
@@ -107,8 +117,10 @@ async function cambiarEstado(numero_ot, nuevo_estado) {
 async function obtenerYMostrarOrdenes() {
   const filtroEstado = document.getElementById('filtro-estado')?.value || '';
   const filtroMecanico = document.getElementById('filtro-mecanico')?.value || '';
+  const vista = document.getElementById('filtro-vista')?.value || 'activas';
 
   const queryParams = new URLSearchParams();
+  queryParams.append('vista', vista);
   if (filtroEstado) queryParams.append('estado', filtroEstado);
   if (filtroMecanico) queryParams.append('mecanico_id', filtroMecanico);
 
@@ -167,13 +179,20 @@ function renderizarOrdenes(ordenes) {
     const siguiente = SIGUIENTE_ESTADO[estado];
     let botonesEstado = '';
 
-    if (siguiente) {
-      botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="${siguiente}">Avanzar a ${siguiente}</button> `;
-    }
-    if (estado !== 'ENTREGADO' && estado !== 'CANCELADO') {
-      botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="CANCELADO">Cancelar</button>`;
-    } else {
+    if (estado === 'LISTO') {
+      // La entrega abre un modal con el resumen y guarda fecha y observaciones
+      botonesEstado = `<button type="button" class="btn-entrega" data-numero-ot="${numeroOt}">Registrar entrega</button>`;
+    } else if (estado === 'ENTREGADO') {
+      botonesEstado = `<button type="button" class="btn-entrega" data-numero-ot="${numeroOt}">Ver entrega</button>`;
+    } else if (estado === 'CANCELADO') {
       botonesEstado = '<small style="color: #7f8c8d;">Sin acciones</small>';
+    } else {
+      if (siguiente) {
+        botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="${siguiente}">Avanzar a ${siguiente}</button> `;
+      }
+      if (PUEDE_CANCELAR.includes(estado)) {
+        botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="CANCELADO">Cancelar</button>`;
+      }
     }
 
     // Selector de mecánico para cada fila
@@ -191,7 +210,11 @@ function renderizarOrdenes(ordenes) {
       <td>${escapeHtml(ot.marca)} ${escapeHtml(ot.modelo)}</td>
       <td>${escapeHtml(ot.cliente)}<br><small style="color: #7f8c8d;">${escapeHtml(ot.telefono)}</small></td>
       <td>${escapeHtml(ot.fallas_reportadas || 'Sin observaciones')}</td>
-      <td><span class="estado-badge">${escapeHtml(estado)}</span></td>
+      <td><span class="estado-badge">${escapeHtml(estado)}</span>${
+        estado === 'ENTREGADO' && ot.fecha_entrega
+          ? `<br><small style="color: #7f8c8d;">${escapeHtml(formatearFecha(ot.fecha_entrega))}</small>`
+          : ''
+      }</td>
       <td>${selectorMecanicoHtml}</td>
       <td><button type="button" class="btn-diagnostico" data-numero-ot="${numeroOt}">${textoBoton}</button></td>
       <td><a href="presupuesto.html?ot=${encodeURIComponent(ot.numero_ot)}">${textoPresupuesto}</a></td>
@@ -209,6 +232,14 @@ const modal = document.getElementById('modal-ot');
 const formDiagnostico = document.getElementById('form-diagnostico');
 const textareaDiagnostico = document.getElementById('diagnostico_tecnico');
 const mensajeDiagnostico = document.getElementById('msg-diagnostico');
+
+// Modal de entrega (Sprint 3 - Tarjeta 3.4)
+const modalEntrega = document.getElementById('modal-entrega');
+const formEntrega = document.getElementById('form-entrega');
+const textareaObservaciones = document.getElementById('observaciones_entrega');
+const mensajeEntrega = document.getElementById('msg-entrega');
+const botonConfirmarEntrega = document.getElementById('btn-confirmar-entrega');
+let otEntrega = null;
 
 function abrirModal(numeroOt) {
   const ot = ordenesCargadas.find((o) => o.numero_ot === numeroOt);
@@ -233,6 +264,75 @@ function abrirModal(numeroOt) {
 }
 
 // ---------------------------------------------------------------
+// 6. Modal de Entrega del Vehículo (Sprint 3 - Tarjeta 3.4)
+// ---------------------------------------------------------------
+async function abrirModalEntrega(numeroOt) {
+  const ot = ordenesCargadas.find((o) => o.numero_ot === numeroOt);
+  if (!ot || !modalEntrega) return;
+
+  otEntrega = ot.numero_ot;
+  const entregada = ot.estado === 'ENTREGADO';
+
+  document.getElementById('entrega-titulo').textContent =
+    entregada ? `Entrega registrada — ${ot.numero_ot}` : `Entrega del vehículo — ${ot.numero_ot}`;
+
+  document.getElementById('entrega-detalle').innerHTML = `
+    <p><strong>Patente:</strong> ${escapeHtml(ot.patente)}</p>
+    <p><strong>Vehículo:</strong> ${escapeHtml(ot.marca)} ${escapeHtml(ot.modelo)}</p>
+    <p><strong>Cliente:</strong> ${escapeHtml(ot.cliente)} (${escapeHtml(ot.telefono)})</p>
+    <p><strong>Mecánico:</strong> ${escapeHtml(ot.mecanico_nombre || 'Sin asignar')}</p>
+    ${entregada ? `<p><strong>Fecha de entrega:</strong> ${escapeHtml(formatearFecha(ot.fecha_entrega))}</p>` : ''}
+  `;
+
+  // Si ya está entregada, el modal es de solo lectura
+  textareaObservaciones.value = ot.observaciones_entrega || '';
+  textareaObservaciones.readOnly = entregada;
+  botonConfirmarEntrega.hidden = entregada;
+  mensajeEntrega.textContent = '';
+  document.getElementById('entrega-items-body').innerHTML =
+    '<tr><td colspan="4">Cargando presupuesto...</td></tr>';
+  document.getElementById('entrega-total').textContent = '';
+
+  modalEntrega.showModal();
+  await cargarResumenPresupuesto(ot.numero_ot);
+}
+
+async function cargarResumenPresupuesto(numeroOt) {
+  const cuerpo = document.getElementById('entrega-items-body');
+
+  try {
+    const respuesta = await fetch(`${API_URL}/${encodeURIComponent(numeroOt)}/presupuesto`);
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok) {
+      cuerpo.innerHTML = `<tr><td colspan="4">❌ ${escapeHtml(datos.error)}</td></tr>`;
+      return;
+    }
+
+    if (datos.items.length === 0) {
+      cuerpo.innerHTML = '<tr><td colspan="4">Esta OT no tiene ítems en el presupuesto.</td></tr>';
+    } else {
+      cuerpo.innerHTML = datos.items.map((item) => {
+        const subtotal = Math.round(item.cantidad * item.precio_unitario * 100) / 100;
+        const tipo = item.tipo === 'MANO_DE_OBRA' ? 'Mano de obra' : 'Repuesto';
+        return `
+          <tr>
+            <td>${escapeHtml(tipo)}: ${escapeHtml(item.descripcion_repuesto)}</td>
+            <td class="num">${escapeHtml(item.cantidad)}</td>
+            <td class="num">${formatoMoneda.format(item.precio_unitario)}</td>
+            <td class="num">${formatoMoneda.format(subtotal)}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    document.getElementById('entrega-total').textContent = `Total: ${formatoMoneda.format(datos.total)}`;
+  } catch (error) {
+    console.error('Error al cargar el resumen del presupuesto:', error);
+    cuerpo.innerHTML = '<tr><td colspan="4">❌ No se pudo conectar con el servidor.</td></tr>';
+  }
+}
+
+// ---------------------------------------------------------------
 // Listeners e Inicialización
 // ---------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', async () => {
@@ -242,6 +342,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Filtros de la cabecera
   document.getElementById('filtro-estado')?.addEventListener('change', obtenerYMostrarOrdenes);
   document.getElementById('filtro-mecanico')?.addEventListener('change', obtenerYMostrarOrdenes);
+  document.getElementById('filtro-vista')?.addEventListener('change', () => {
+    // El estado elegido puede no existir en la otra vista: se limpia el filtro
+    const filtroEstado = document.getElementById('filtro-estado');
+    if (filtroEstado) filtroEstado.value = '';
+    obtenerYMostrarOrdenes();
+  });
 
   const tbody = document.getElementById('tabla-ordenes');
 
@@ -255,6 +361,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const botonEstado = e.target.closest('.btn-estado');
     if (botonEstado) {
       cambiarEstado(botonEstado.dataset.numeroOt, botonEstado.dataset.estado);
+      return;
+    }
+    const botonEntrega = e.target.closest('.btn-entrega');
+    if (botonEntrega) {
+      abrirModalEntrega(botonEntrega.dataset.numeroOt);
     }
   });
 
@@ -264,6 +375,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('cerrar-modal')?.addEventListener('click', () => modal?.close());
+  document.getElementById('cerrar-modal-entrega')?.addEventListener('click', () => modalEntrega?.close());
+
+  formEntrega?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    botonConfirmarEntrega.disabled = true;
+    mensajeEntrega.textContent = 'Registrando entrega...';
+
+    try {
+      const respuesta = await fetch(`${API_URL}/${encodeURIComponent(otEntrega)}/entrega`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observaciones_entrega: textareaObservaciones.value })
+      });
+      const resultado = await respuesta.json();
+
+      if (!respuesta.ok) {
+        mensajeEntrega.textContent = '❌ ' + resultado.error;
+        return;
+      }
+
+      modalEntrega.close();
+      alert(`${resultado.mensaje} Total del presupuesto: ${formatoMoneda.format(resultado.total)}`);
+      obtenerYMostrarOrdenes(); // la OT pasa al historial
+    } catch (error) {
+      console.error('Error al registrar la entrega:', error);
+      mensajeEntrega.textContent = '❌ No se pudo conectar con el servidor.';
+    } finally {
+      botonConfirmarEntrega.disabled = false;
+    }
+  });
 
   formDiagnostico?.addEventListener('submit', async (e) => {
     e.preventDefault();
