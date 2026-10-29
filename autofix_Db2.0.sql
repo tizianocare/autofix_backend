@@ -44,6 +44,8 @@ CREATE TABLE ordenes_trabajo (
     -- Sprint 3 (Tarjeta 3.1): estados finales del flujo del taller
     estado ENUM('INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO') DEFAULT 'INGRESADO',
     fecha_ingreso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_entrega TIMESTAMP NULL DEFAULT NULL,   -- Sprint 3 (Tarjeta 3.4)
+    observaciones_entrega TEXT NULL,             -- Sprint 3 (Tarjeta 3.4)
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     -- Relaciones
