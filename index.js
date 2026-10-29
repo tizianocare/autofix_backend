@@ -162,14 +162,19 @@ app.post('/api/ordenes-trabajo', async (req, res) => {
 
 // ---------------------------------------------------------------
 // 5. GET: listar OTs con cliente, vehículo y mecánico.
-//    Filtros opcionales: ?estado=...&mecanico_id=...
+//    Filtros opcionales: ?estado=...&mecanico_id=...&vista=activas|historial
+//    (vista=historial: OT cerradas, es decir ENTREGADO y CANCELADO - Tarjeta 3.4)
 //    (motivo_ingreso se devuelve como fallas_reportadas para el panel)
 // ---------------------------------------------------------------
 app.get('/api/ordenes-trabajo', async (req, res) => {
-  const { estado, mecanico_id } = req.query;
+  const { estado, mecanico_id, vista } = req.query;
 
   if (estado && !ESTADOS.includes(estado)) {
     return res.status(400).json({ error: `Estado inválido. Valores permitidos: ${ESTADOS.join(', ')}` });
+  }
+
+  if (vista && !['activas', 'historial'].includes(vista)) {
+    return res.status(400).json({ error: "El parámetro vista debe ser 'activas' o 'historial'." });
   }
 
   try {
@@ -185,6 +190,8 @@ app.get('/api/ordenes-trabajo', async (req, res) => {
         ot.diagnostico_tecnico,
         ot.estado,
         ot.fecha_ingreso,
+        ot.fecha_entrega,
+        ot.observaciones_entrega,
         ot.mecanico_id,
         m.nombre AS mecanico_nombre
       FROM ordenes_trabajo ot
@@ -198,12 +205,20 @@ app.get('/api/ordenes-trabajo', async (req, res) => {
       sql += ' AND ot.estado = ?';
       params.push(estado);
     }
+    if (vista === 'activas') {
+      sql += " AND ot.estado NOT IN ('ENTREGADO', 'CANCELADO')";
+    } else if (vista === 'historial') {
+      sql += " AND ot.estado IN ('ENTREGADO', 'CANCELADO')";
+    }
+
     if (mecanico_id) {
       sql += ' AND ot.mecanico_id = ?';
       params.push(mecanico_id);
     }
 
-    sql += ' ORDER BY ot.fecha_ingreso DESC, ot.numero_ot DESC';
+    sql += vista === 'historial'
+      ? ' ORDER BY COALESCE(ot.fecha_entrega, ot.updated_at) DESC, ot.numero_ot DESC'
+      : ' ORDER BY ot.fecha_ingreso DESC, ot.numero_ot DESC';
 
     const [filas] = await pool.query(sql, params);
     res.json(filas);
@@ -251,6 +266,12 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
 
   if (!nuevo_estado) {
     return res.status(400).json({ error: 'El campo nuevo_estado es obligatorio.' });
+  }
+  // La entrega guarda fecha y observaciones, por eso tiene su propio endpoint (Tarjeta 3.4)
+  if (nuevo_estado === 'ENTREGADO') {
+    return res.status(400).json({
+      error: "Para pasar una OT a ENTREGADO usá 'Registrar entrega' (POST /api/ordenes-trabajo/:numero_ot/entrega)."
+    });
   }
 
   const conn = await pool.getConnection();
@@ -316,6 +337,74 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
     await conn.rollback();
     console.error('Error al actualizar estado:', error);
     res.status(500).json({ error: 'Error interno al procesar el cambio de estado.' });
+  } finally {
+    conn.release();
+  }
+});
+
+// ---------------------------------------------------------------
+// 6.1 POST: registrar la entrega del vehículo (Sprint 3 - Tarjeta 3.4)
+//     Solo desde LISTO. Guarda fecha y observaciones, pasa a ENTREGADO
+//     y deja el cambio en el historial, todo en una transacción.
+// ---------------------------------------------------------------
+app.post('/api/ordenes-trabajo/:numero_ot/entrega', async (req, res) => {
+  const { numero_ot } = req.params;
+  const observaciones = String(req.body.observaciones_entrega ?? '').trim();
+
+  if (observaciones.length > 2000) {
+    return res.status(400).json({ error: 'Las observaciones superan el máximo de 2000 caracteres.' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [ots] = await conn.query(
+      'SELECT estado FROM ordenes_trabajo WHERE numero_ot = ? FOR UPDATE',
+      [numero_ot]
+    );
+    if (ots.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'No existe una OT con ese número.' });
+    }
+    if (ots[0].estado !== 'LISTO') {
+      await conn.rollback();
+      return res.status(409).json({
+        error: `Solo se puede entregar una OT en estado LISTO (estado actual: ${ots[0].estado}).`
+      });
+    }
+
+    await conn.query(
+      `UPDATE ordenes_trabajo
+       SET estado = 'ENTREGADO', fecha_entrega = NOW(), observaciones_entrega = ?
+       WHERE numero_ot = ?`,
+      [observaciones || null, numero_ot]
+    );
+    await conn.query(
+      'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
+      [numero_ot, 'LISTO', 'ENTREGADO']
+    );
+
+    // Total del presupuesto (cada línea redondeada a 2 decimales, igual que en el frontend)
+    const [[fila]] = await conn.query(
+      `SELECT COALESCE(SUM(ROUND(cantidad * precio_unitario, 2)), 0) AS total
+       FROM detalles_presupuesto
+       WHERE numero_ot = ?`,
+      [numero_ot]
+    );
+
+    await conn.commit();
+
+    res.json({
+      mensaje: `Entrega de ${numero_ot} registrada con éxito.`,
+      numero_ot,
+      estado: 'ENTREGADO',
+      total: Number(fila.total) // SUM devuelve texto: se convierte
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error al registrar la entrega:', error);
+    res.status(500).json({ error: 'Error interno al registrar la entrega.' });
   } finally {
     conn.release();
   }
