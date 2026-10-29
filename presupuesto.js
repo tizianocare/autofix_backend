@@ -1,7 +1,11 @@
 const API_URL = 'http://localhost:3000/api/ordenes-trabajo';
 
-// El número de OT llega por la URL: presupuesto.html?ot=OT-7681
+// El número de OT llega por la URL: presupuesto.html?ot=OT-0001
 const numeroOt = new URLSearchParams(window.location.search).get('ot');
+
+// Desde estos estados el presupuesto queda fijo y se muestra como checklist
+// (debe coincidir con ESTADOS_SIN_EDICION de rutas_presupuesto.js)
+const ESTADOS_PRESUPUESTO_FIJO = ['EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO'];
 
 const form = document.getElementById('form-presupuesto');
 const tbody = document.getElementById('items');
@@ -9,10 +13,17 @@ const mensaje = document.getElementById('mensaje');
 const infoOt = document.getElementById('info-ot');
 const botonGuardar = document.getElementById('btn-guardar');
 
+const seccionChecklist = document.getElementById('seccion-checklist');
+const listaChecklist = document.getElementById('lista-checklist');
+const barraProgreso = document.getElementById('barra-progreso');
+const textoProgreso = document.getElementById('texto-progreso');
+const mensajeChecklist = document.getElementById('mensaje-checklist');
+
 const formatoMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
 const redondear2 = (n) => Math.round(n * 100) / 100;
 
 let ordenActual = null;
+let itemsChecklist = [];
 
 // ---------------------------------------------------------------
 // Encabezado con los datos de la OT (textContent: no interpreta HTML)
@@ -26,7 +37,7 @@ function mostrarOrden(orden) {
 }
 
 // ---------------------------------------------------------------
-// Filas dinámicas (tarea 2)
+// Filas dinámicas del formulario de presupuesto (Tarjeta 2.3)
 // ---------------------------------------------------------------
 function agregarFila(item = {}) {
   const tr = document.createElement('tr');
@@ -61,7 +72,6 @@ document.getElementById('btn-add-mano-obra').addEventListener('click', () => {
   agregarFila({ tipo: 'MANO_DE_OBRA' });
 });
 
-// Quitar una fila (delegación de eventos: un solo listener para todos los botones)
 tbody.addEventListener('click', (e) => {
   const boton = e.target.closest('.btn-quitar');
   if (boton) {
@@ -70,10 +80,7 @@ tbody.addEventListener('click', (e) => {
   }
 });
 
-// ---------------------------------------------------------------
-// Cálculo automático de totales (tarea 3)
-// Se calcula en centavos (enteros) para evitar errores de decimales
-// ---------------------------------------------------------------
+// Cálculo en centavos (enteros) para evitar errores de decimales
 function recalcular() {
   let centRepuestos = 0;
   let centManoObra = 0;
@@ -98,9 +105,105 @@ function recalcular() {
     formatoMoneda.format((centRepuestos + centManoObra) / 100);
 }
 
-// Cada vez que el mecánico escribe o cambia el tipo, se recalcula
 tbody.addEventListener('input', recalcular);
 tbody.addEventListener('change', recalcular);
+
+// ---------------------------------------------------------------
+// Checklist de reparación (Sprint 3 - Tarjeta 3.3)
+// ---------------------------------------------------------------
+function actualizarProgreso({ completados, total }) {
+  barraProgreso.max = total || 1;
+  barraProgreso.value = completados;
+  textoProgreso.textContent = `${completados} de ${total} ítems realizados`;
+
+  if (total > 0 && completados === total && ordenActual.estado === 'EN_REPARACION') {
+    mensajeChecklist.textContent = '✅ Checklist completo: ya podés pasar la OT a LISTO desde el panel.';
+  } else if (mensajeChecklist.textContent.startsWith('✅')) {
+    mensajeChecklist.textContent = '';
+  }
+}
+
+function mostrarChecklist(items, total) {
+  itemsChecklist = items;
+  // Los ítems solo se pueden tildar mientras la OT está en reparación
+  const editable = ordenActual.estado === 'EN_REPARACION';
+
+  seccionChecklist.hidden = false;
+  form.hidden = true;
+  listaChecklist.innerHTML = '';
+
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    if (item.completado) li.classList.add('hecho');
+
+    const label = document.createElement('label');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = item.completado;
+    check.disabled = !editable;
+    check.dataset.itemId = item.id;
+
+    // textContent: la descripción del ítem nunca se interpreta como HTML
+    const texto = document.createElement('span');
+    const tipo = item.tipo === 'MANO_DE_OBRA' ? 'Mano de obra' : 'Repuesto';
+    texto.textContent =
+      `${tipo}: ${item.descripcion_repuesto} (${item.cantidad} × ${formatoMoneda.format(item.precio_unitario)})`;
+
+    label.append(check, texto);
+    li.append(label);
+    listaChecklist.append(li);
+  });
+
+  document.getElementById('total-checklist').textContent = formatoMoneda.format(total);
+  actualizarProgreso({
+    completados: items.filter((it) => it.completado).length,
+    total: items.length
+  });
+
+  if (!editable) {
+    mensajeChecklist.textContent = 'El checklist es de solo lectura porque la OT ya no está en reparación.';
+  }
+}
+
+// Un solo listener para todas las casillas (delegación de eventos)
+listaChecklist.addEventListener('change', async (e) => {
+  const check = e.target.closest('input[type="checkbox"]');
+  if (!check) return;
+
+  const itemId = check.dataset.itemId;
+  const marcado = check.checked;
+  check.disabled = true;
+  mensajeChecklist.textContent = '';
+
+  try {
+    const respuesta = await fetch(
+      `${API_URL}/${encodeURIComponent(numeroOt)}/presupuesto/items/${encodeURIComponent(itemId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completado: marcado })
+      }
+    );
+    const resultado = await respuesta.json();
+
+    if (!respuesta.ok) {
+      check.checked = !marcado; // se deshace el cambio visual
+      mensajeChecklist.textContent = '❌ ' + resultado.error;
+      return;
+    }
+
+    const item = itemsChecklist.find((it) => String(it.id) === itemId);
+    if (item) item.completado = marcado;
+    check.closest('li').classList.toggle('hecho', marcado);
+    actualizarProgreso(resultado.progreso);
+  } catch (error) {
+    console.error('Error al actualizar el checklist:', error);
+    check.checked = !marcado;
+    mensajeChecklist.textContent = '❌ No se pudo conectar con el servidor.';
+  } finally {
+    check.disabled = false;
+  }
+});
 
 // ---------------------------------------------------------------
 // Cargar la OT y su presupuesto existente (si ya tenía uno)
@@ -125,7 +228,10 @@ async function cargarPresupuesto() {
     ordenActual = datos.orden;
     mostrarOrden(ordenActual);
 
-    if (datos.items.length === 0) {
+    if (ESTADOS_PRESUPUESTO_FIJO.includes(ordenActual.estado)) {
+      // El presupuesto ya no se edita: se muestra como checklist de reparación
+      mostrarChecklist(datos.items, datos.total);
+    } else if (datos.items.length === 0) {
       agregarFila({ tipo: 'REPUESTO' });
     } else {
       datos.items.forEach((item) => agregarFila(item));
@@ -138,7 +244,7 @@ async function cargarPresupuesto() {
 }
 
 // ---------------------------------------------------------------
-// Guardar el presupuesto (tarea 4: llama al endpoint PUT)
+// Guardar el presupuesto (PUT)
 // ---------------------------------------------------------------
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
