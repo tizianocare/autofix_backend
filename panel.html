@@ -16,6 +16,7 @@
     .filtros-container {
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
       margin-bottom: 15px;
       background: #fff;
       padding: 12px;
@@ -65,42 +66,67 @@
       color: white;
     }
 
-    /* Estilos del modal (Sprint 2 - Tarjeta 2.1) */
-    #modal-ot {
+    /* Estilos de los modales (diagnóstico: Tarjeta 2.1 / entrega: Tarjeta 3.4) */
+    #modal-ot, #modal-entrega {
       border: 1px solid #ccc;
       border-radius: 8px;
       padding: 20px;
       width: min(600px, 90vw);
     }
-    #modal-ot::backdrop {
+    #modal-ot::backdrop, #modal-entrega::backdrop {
       background: rgba(0, 0, 0, 0.5);
     }
-    #modal-detalle p {
+    #modal-detalle p, #entrega-detalle p {
       margin: 4px 0;
     }
-    #diagnostico_tecnico {
+    #diagnostico_tecnico, #observaciones_entrega {
       width: 100%;
       box-sizing: border-box;
       margin-top: 6px;
     }
-    #msg-diagnostico {
+    #msg-diagnostico, #msg-entrega {
       min-height: 1.2em;
     }
     .acciones-modal {
       display: flex;
       gap: 8px;
     }
+
+    /* Resumen del presupuesto dentro del modal de entrega */
+    #entrega-items {
+      width: 100%;
+      font-size: 14px;
+    }
+    #entrega-items th, #entrega-items td {
+      padding: 4px 6px;
+    }
+    #entrega-items .num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    #entrega-total {
+      text-align: right;
+      font-size: 1.2em;
+      font-weight: bold;
+      margin: 8px 0;
+    }
   </style>
 </head>
 <body>
 
   <header>
-    <h1>📋 Panel de Órdenes de Trabajo Activas</h1>
+    <h1>📋 Panel de Órdenes de Trabajo</h1>
     <h2>AutoFix Manager</h2>
   </header>
 
-  <!-- Contenedor de Filtros (Sprint 3 - Tarjeta 3.2) -->
+  <!-- Contenedor de Filtros (Sprint 3 - Tarjetas 3.2 y 3.4) -->
   <div class="filtros-container">
+    <!-- Separa las órdenes en curso del historial de cerradas (Tarjeta 3.4) -->
+    <select id="filtro-vista">
+      <option value="activas">Órdenes activas</option>
+      <option value="historial">Historial (entregadas y canceladas)</option>
+    </select>
+
     <select id="filtro-estado">
       <option value="">Todos los estados</option>
       <option value="INGRESADO">INGRESADO</option>
@@ -134,7 +160,7 @@
         </tr>
       </thead>
       <tbody id="tabla-ordenes">
-        <!-- Las filas se generan dinámicamente desde app2.js -->
+        <!-- Las filas se generan dinámicamente desde app.js -->
       </tbody>
     </table>
   </div>
@@ -154,11 +180,39 @@
       </div>
     </form>
   </dialog>
-  
-    <!-- Vinculación al archivo JS con las funcionalidades unificadas -->
-    <script src="app.js"></script>
-  
+
+  <!-- Modal de entrega del vehículo (Sprint 3 - Tarjeta 3.4) -->
+  <dialog id="modal-entrega">
+    <h3 id="entrega-titulo"></h3>
+    <div id="entrega-detalle"></div>
+    <hr>
+    <h4>Resumen del presupuesto</h4>
+    <table id="entrega-items">
+      <thead>
+        <tr>
+          <th>Ítem</th>
+          <th class="num">Cant.</th>
+          <th class="num">Precio</th>
+          <th class="num">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody id="entrega-items-body"></tbody>
+    </table>
+    <div id="entrega-total"></div>
+    <hr>
+    <form id="form-entrega">
+      <label for="observaciones_entrega"><strong>Observaciones de la entrega:</strong></label>
+      <textarea id="observaciones_entrega" rows="4" maxlength="2000" placeholder="Ej: retira el titular, se entregan las piezas reemplazadas..."></textarea>
+      <p id="msg-entrega"></p>
+      <div class="acciones-modal">
+        <button type="submit" id="btn-confirmar-entrega">Confirmar entrega</button>
+        <button type="button" id="cerrar-modal-entrega">Cerrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Vinculación al archivo JS con las funcionalidades unificadas -->
+  <script src="app.js"></script>
+
 </body>
 </html>
-
-
