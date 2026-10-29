@@ -77,6 +77,8 @@ CREATE TABLE detalles_presupuesto (
     descripcion_repuesto VARCHAR(200) NOT NULL,
     cantidad DECIMAL(10,2) NOT NULL DEFAULT 1.00,      -- unidades (repuestos) u horas (mano de obra)
     precio_unitario DECIMAL(12,2) NOT NULL,
+    completado BOOLEAN NOT NULL DEFAULT FALSE,          -- Sprint 3 (Tarjeta 3.3): checklist de reparación
+    fecha_completado TIMESTAMP NULL DEFAULT NULL,       -- Sprint 3 (Tarjeta 3.3)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_detalle_ot
