@@ -47,11 +47,13 @@ const regexTelefono = /^\+?\d{7,15}$/;
 
 // Transiciones permitidas (Sprint 3 - Tarjeta 3.1). Deben coincidir con el ENUM de la BD.
 const TRANSICIONES_PERMITIDAS = {
-  INGRESADO: ['DIAGNOSTICO', 'CANCELADO'],
-  DIAGNOSTICO: ['PRESUPUESTADO', 'CANCELADO'],
+  INGRESADO: ['EN_DIAGNOSTICO', 'CANCELADO'],
+  EN_DIAGNOSTICO: ['DIAGNOSTICADO', 'CANCELADO'],
+  DIAGNOSTICADO: ['EN_PRESUPUESTO', 'CANCELADO'],
+  EN_PRESUPUESTO: ['PRESUPUESTADO', 'CANCELADO'],
   PRESUPUESTADO: ['EN_REPARACION', 'CANCELADO'],
-  EN_REPARACION: ['LISTO', 'CANCELADO'],
-  LISTO: ['ENTREGADO'],
+  EN_REPARACION: ['REPARADO', 'CANCELADO'],
+  REPARADO: ['ENTREGADO'],
   ENTREGADO: [],
   CANCELADO: []
 };
@@ -297,7 +299,7 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
     }
 
     // Reglas que dependen de los ítems del presupuesto (Sprint 3 - Tarjeta 3.3)
-    if (nuevo_estado === 'PRESUPUESTADO' || nuevo_estado === 'LISTO') {
+    if (nuevo_estado === 'PRESUPUESTADO' || nuevo_estado === 'REPARADO') {
       const [[conteo]] = await conn.query(
         `SELECT COUNT(*) AS total, COALESCE(SUM(completado = 0), 0) AS pendientes
          FROM detalles_presupuesto
@@ -311,10 +313,10 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
         await conn.rollback();
         return res.status(400).json({ error: 'No se puede pasar a PRESUPUESTADO sin armar antes el presupuesto.' });
       }
-      if (nuevo_estado === 'LISTO' && pendientes > 0) {
+      if (nuevo_estado === 'REPARADO' && pendientes > 0) {
         await conn.rollback();
         return res.status(400).json({
-          error: `No se puede pasar a LISTO: quedan ${pendientes} de ${total} ítems pendientes en el checklist.`
+          error: `No se puede pasar a REPARADO: quedan ${pendientes} de ${total} ítems pendientes en el checklist.`
         });
       }
     }
@@ -344,7 +346,7 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
 
 // ---------------------------------------------------------------
 // 6.1 POST: registrar la entrega del vehículo (Sprint 3 - Tarjeta 3.4)
-//     Solo desde LISTO. Guarda fecha y observaciones, pasa a ENTREGADO
+//     Solo desde REPARADO. Guarda fecha y observaciones, pasa a ENTREGADO
 //     y deja el cambio en el historial, todo en una transacción.
 // ---------------------------------------------------------------
 app.post('/api/ordenes-trabajo/:numero_ot/entrega', async (req, res) => {
@@ -367,10 +369,10 @@ app.post('/api/ordenes-trabajo/:numero_ot/entrega', async (req, res) => {
       await conn.rollback();
       return res.status(404).json({ error: 'No existe una OT con ese número.' });
     }
-    if (ots[0].estado !== 'LISTO') {
+    if (ots[0].estado !== 'REPARADO') {
       await conn.rollback();
       return res.status(409).json({
-        error: `Solo se puede entregar una OT en estado LISTO (estado actual: ${ots[0].estado}).`
+        error: `Solo se puede entregar una OT en estado REPARADO (estado actual: ${ots[0].estado}).`
       });
     }
 
@@ -382,7 +384,7 @@ app.post('/api/ordenes-trabajo/:numero_ot/entrega', async (req, res) => {
     );
     await conn.query(
       'INSERT INTO historial_estados (numero_ot, estado_anterior, estado_nuevo) VALUES (?, ?, ?)',
-      [numero_ot, 'LISTO', 'ENTREGADO']
+      [numero_ot, 'REPARADO', 'ENTREGADO']
     );
 
     // Total del presupuesto (cada línea redondeada a 2 decimales, igual que en el frontend)
