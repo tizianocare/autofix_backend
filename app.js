@@ -7,15 +7,22 @@ let otSeleccionada = null;
 
 // Siguiente estado del flujo (debe coincidir con TRANSICIONES_PERMITIDAS de index.js)
 const SIGUIENTE_ESTADO = {
-  INGRESADO: 'DIAGNOSTICO',
-  DIAGNOSTICO: 'PRESUPUESTADO',
+  INGRESADO: 'EN_DIAGNOSTICO',
+  EN_DIAGNOSTICO: 'DIAGNOSTICADO',
+  DIAGNOSTICADO: 'EN_PRESUPUESTO',
+  // EN_PRESUPUESTO -> PRESUPUESTADO no está acá: ocurre al guardar el presupuesto
   PRESUPUESTADO: 'EN_REPARACION',
-  EN_REPARACION: 'LISTO'
-  // LISTO -> ENTREGADO no está acá: se hace con "Registrar entrega" (Tarjeta 3.4)
+  EN_REPARACION: 'REPARADO'
+  // REPARADO -> ENTREGADO no está acá: se hace con "Registrar entrega" (Tarjeta 3.4)
 };
 
 // Estados desde los que se puede cancelar (igual que TRANSICIONES_PERMITIDAS de index.js)
-const PUEDE_CANCELAR = ['INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION'];
+const PUEDE_CANCELAR = [
+  'INGRESADO', 'EN_DIAGNOSTICO', 'DIAGNOSTICADO', 'EN_PRESUPUESTO', 'PRESUPUESTADO', 'EN_REPARACION'
+];
+
+// Estados en los que se puede registrar un diagnóstico (igual que en index.js)
+const ESTADOS_PARA_DIAGNOSTICAR = ['EN_DIAGNOSTICO', 'DIAGNOSTICADO'];
 
 const formatoMoneda = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
 
@@ -172,14 +179,15 @@ function renderizarOrdenes(ordenes) {
 
     // Mismo enlace, distinto uso según la etapa (Tarjeta 3.3)
     let textoPresupuesto = 'Armar presupuesto';
-    if (estado === 'EN_REPARACION' || estado === 'LISTO') textoPresupuesto = 'Checklist de reparación';
+    if (estado === 'EN_PRESUPUESTO' || estado === 'PRESUPUESTADO') textoPresupuesto = 'Presupuesto';
+    if (estado === 'EN_REPARACION' || estado === 'REPARADO') textoPresupuesto = 'Checklist de reparación';
     if (estado === 'ENTREGADO' || estado === 'CANCELADO') textoPresupuesto = 'Ver presupuesto';
 
     // Botones de cambio de estado (los clics se manejan por delegación más abajo)
     const siguiente = SIGUIENTE_ESTADO[estado];
     let botonesEstado = '';
 
-    if (estado === 'LISTO') {
+    if (estado === 'REPARADO') {
       // La entrega abre un modal con el resumen y guarda fecha y observaciones
       botonesEstado = `<button type="button" class="btn-entrega" data-numero-ot="${numeroOt}">Registrar entrega</button>`;
     } else if (estado === 'ENTREGADO') {
@@ -189,6 +197,10 @@ function renderizarOrdenes(ordenes) {
     } else {
       if (siguiente) {
         botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="${siguiente}">Avanzar a ${siguiente}</button> `;
+      }
+      if (estado === 'EN_REPARACION') {
+        // Aparecieron fallas nuevas: la OT vuelve a diagnóstico y luego se amplía el presupuesto
+        botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="EN_DIAGNOSTICO" title="Aparecieron fallas nuevas durante la reparación">Fallas nuevas</button> `;
       }
       if (PUEDE_CANCELAR.includes(estado)) {
         botonesEstado += `<button type="button" class="btn-estado" data-numero-ot="${numeroOt}" data-estado="CANCELADO">Cancelar</button>`;
@@ -232,6 +244,7 @@ const modal = document.getElementById('modal-ot');
 const formDiagnostico = document.getElementById('form-diagnostico');
 const textareaDiagnostico = document.getElementById('diagnostico_tecnico');
 const mensajeDiagnostico = document.getElementById('msg-diagnostico');
+const botonGuardarDiagnostico = document.getElementById('btn-guardar-diagnostico');
 
 // Modal de entrega (Sprint 3 - Tarjeta 3.4)
 const modalEntrega = document.getElementById('modal-entrega');
@@ -257,10 +270,52 @@ function abrirModal(numeroOt) {
     <p><strong>Fallas reportadas:</strong> ${escapeHtml(ot.fallas_reportadas || 'Sin observaciones')}</p>
   `;
 
-  if (textareaDiagnostico) textareaDiagnostico.value = ot.diagnostico_tecnico || '';
-  if (mensajeDiagnostico) mensajeDiagnostico.textContent = '';
+  // El diagnóstico solo se registra en EN_DIAGNOSTICO o DIAGNOSTICADO; fuera de ahí es de solo lectura
+  const puedeDiagnosticar = ESTADOS_PARA_DIAGNOSTICAR.includes(ot.estado);
+  if (textareaDiagnostico) {
+    textareaDiagnostico.value = ot.diagnostico_tecnico || '';
+    textareaDiagnostico.readOnly = !puedeDiagnosticar;
+  }
+  if (botonGuardarDiagnostico) botonGuardarDiagnostico.hidden = !puedeDiagnosticar;
+  if (mensajeDiagnostico) {
+    mensajeDiagnostico.textContent = puedeDiagnosticar
+      ? ''
+      : 'Para registrar un diagnóstico la OT debe estar EN_DIAGNOSTICO o DIAGNOSTICADO. ' +
+        'Si aparecieron fallas durante la reparación, usá «Fallas nuevas» en el panel.';
+  }
 
+  cargarHistorialDiagnosticos(ot.numero_ot);
   if (modal) modal.showModal();
+}
+
+// Historial de diagnósticos de la OT (el más reciente primero, marcado como vigente)
+async function cargarHistorialDiagnosticos(numeroOt) {
+  const contenedor = document.getElementById('historial-diagnosticos');
+  if (!contenedor) return;
+  contenedor.textContent = 'Cargando historial...';
+
+  try {
+    const respuesta = await fetch(`${API_URL}/${encodeURIComponent(numeroOt)}/diagnosticos`);
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok) {
+      contenedor.textContent = datos.error;
+      return;
+    }
+    if (datos.length === 0) {
+      contenedor.textContent = 'Todavía no hay diagnósticos registrados.';
+      return;
+    }
+    contenedor.innerHTML = datos.map((d, i) => `
+      <div class="entrada-diagnostico">
+        <small>${escapeHtml(formatearFecha(d.fecha))}${i === 0 ? ' · vigente' : ''}</small>
+        <div>${escapeHtml(d.diagnostico)}</div>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Error al cargar el historial de diagnósticos:', error);
+    contenedor.textContent = 'No se pudo cargar el historial de diagnósticos.';
+  }
 }
 
 // ---------------------------------------------------------------
@@ -432,6 +487,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       obtenerYMostrarOrdenes();
+      cargarHistorialDiagnosticos(otSeleccionada);
       mensajeDiagnostico.textContent = '✅ Diagnóstico guardado correctamente.';
     } catch (error) {
       console.error('Error al guardar el diagnóstico:', error);
