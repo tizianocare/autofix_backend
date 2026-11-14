@@ -87,6 +87,19 @@
     #msg-diagnostico, #msg-entrega {
       min-height: 1.2em;
     }
+    #historial-diagnosticos {
+      max-height: 180px;
+      overflow-y: auto;
+    }
+    .entrada-diagnostico {
+      border-left: 3px solid #cfd8dc;
+      padding: 4px 10px;
+      margin-bottom: 8px;
+      white-space: pre-wrap;
+    }
+    .entrada-diagnostico small {
+      color: #607d8b;
+    }
     .acciones-modal {
       display: flex;
       gap: 8px;
@@ -115,7 +128,7 @@
 <body>
 
   <header>
-    <h1>📋 Panel de Órdenes de Trabajo</h1>
+    <h1>&#128203; Panel de Órdenes de Trabajo</h1>
     <h2>AutoFix Manager</h2>
   </header>
 
@@ -130,10 +143,12 @@
     <select id="filtro-estado">
       <option value="">Todos los estados</option>
       <option value="INGRESADO">INGRESADO</option>
-      <option value="DIAGNOSTICO">DIAGNOSTICO</option>
+      <option value="EN_DIAGNOSTICO">EN_DIAGNOSTICO</option>
+      <option value="DIAGNOSTICADO">DIAGNOSTICADO</option>
+      <option value="EN_PRESUPUESTO">EN_PRESUPUESTO</option>
       <option value="PRESUPUESTADO">PRESUPUESTADO</option>
       <option value="EN_REPARACION">EN_REPARACION</option>
-      <option value="LISTO">LISTO</option>
+      <option value="REPARADO">REPARADO</option>
       <option value="ENTREGADO">ENTREGADO</option>
       <option value="CANCELADO">CANCELADO</option>
     </select>
@@ -170,12 +185,15 @@
     <h3 id="modal-titulo"></h3>
     <div id="modal-detalle"></div>
     <hr>
+    <h4>Historial de diagnósticos</h4>
+    <div id="historial-diagnosticos"></div>
+    <hr>
     <form id="form-diagnostico">
-      <label for="diagnostico_tecnico"><strong>Diagnóstico técnico:</strong></label>
+      <label for="diagnostico_tecnico"><strong>Diagnóstico técnico vigente:</strong></label>
       <textarea id="diagnostico_tecnico" rows="8" maxlength="5000" required placeholder="Detallá las fallas encontradas en la revisión..."></textarea>
       <p id="msg-diagnostico"></p>
       <div class="acciones-modal">
-        <button type="submit">Guardar diagnóstico</button>
+        <button type="submit" id="btn-guardar-diagnostico">Guardar diagnóstico</button>
         <button type="button" id="cerrar-modal">Cerrar</button>
       </div>
     </form>
