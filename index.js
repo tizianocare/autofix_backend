@@ -52,7 +52,9 @@ const TRANSICIONES_PERMITIDAS = {
   DIAGNOSTICADO: ['EN_PRESUPUESTO', 'CANCELADO'],
   EN_PRESUPUESTO: ['PRESUPUESTADO', 'CANCELADO'],
   PRESUPUESTADO: ['EN_REPARACION', 'CANCELADO'],
-  EN_REPARACION: ['REPARADO', 'CANCELADO'],
+  // Si durante la reparación aparecen fallas nuevas, la OT vuelve a diagnóstico:
+  // EN_REPARACION -> EN_DIAGNOSTICO -> ... -> PRESUPUESTADO (ampliación) -> EN_REPARACION
+  EN_REPARACION: ['REPARADO', 'EN_DIAGNOSTICO', 'CANCELADO'],
   REPARADO: ['ENTREGADO'],
   ENTREGADO: [],
   CANCELADO: []
@@ -231,9 +233,15 @@ app.get('/api/ordenes-trabajo', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
-// 5.1 PUT: guardar el diagnóstico técnico de una OT (Sprint 2 - Tarjeta 2.1)
+// 5.1 PUT: registrar el diagnóstico técnico de una OT (Sprint 2 - Tarjeta 2.1)
+//     Cada diagnóstico queda en historial_diagnosticos (no se pisa el anterior)
+//     y el último se guarda también en ordenes_trabajo.diagnostico_tecnico.
+//     Solo se puede registrar con la OT en EN_DIAGNOSTICO o DIAGNOSTICADO.
 // ---------------------------------------------------------------
+const ESTADOS_PARA_DIAGNOSTICAR = ['EN_DIAGNOSTICO', 'DIAGNOSTICADO'];
+
 app.put('/api/ordenes-trabajo/:numero_ot/diagnostico', async (req, res) => {
+  const { numero_ot } = req.params;
   const diagnostico = String(req.body.diagnostico_tecnico ?? '').trim();
 
   if (!diagnostico) {
@@ -243,18 +251,63 @@ app.put('/api/ordenes-trabajo/:numero_ot/diagnostico', async (req, res) => {
     return res.status(400).json({ error: 'El diagnóstico supera el máximo de 5000 caracteres.' });
   }
 
+  const conn = await pool.getConnection();
   try {
-    const [resultado] = await pool.query(
-      'UPDATE ordenes_trabajo SET diagnostico_tecnico = ? WHERE numero_ot = ?',
-      [diagnostico, req.params.numero_ot]
+    await conn.beginTransaction();
+
+    const [ots] = await conn.query(
+      'SELECT estado FROM ordenes_trabajo WHERE numero_ot = ? FOR UPDATE',
+      [numero_ot]
     );
-    if (resultado.affectedRows === 0) {
+    if (ots.length === 0) {
+      await conn.rollback();
       return res.status(404).json({ error: 'No existe una OT con ese número.' });
     }
-    res.json({ mensaje: 'Diagnóstico guardado', numero_ot: req.params.numero_ot });
+    if (!ESTADOS_PARA_DIAGNOSTICAR.includes(ots[0].estado)) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: `El diagnóstico solo se puede registrar con la OT en EN_DIAGNOSTICO o DIAGNOSTICADO ` +
+               `(estado actual: ${ots[0].estado}). Si aparecieron fallas durante la reparación, ` +
+               `usá «Fallas nuevas» en el panel para volver a diagnóstico.`
+      });
+    }
+
+    await conn.query(
+      'UPDATE ordenes_trabajo SET diagnostico_tecnico = ? WHERE numero_ot = ?',
+      [diagnostico, numero_ot]
+    );
+    await conn.query(
+      'INSERT INTO historial_diagnosticos (numero_ot, diagnostico) VALUES (?, ?)',
+      [numero_ot, diagnostico]
+    );
+
+    await conn.commit();
+    res.json({ mensaje: 'Diagnóstico guardado', numero_ot });
   } catch (error) {
+    await conn.rollback();
     console.error('Error al guardar el diagnóstico:', error);
     res.status(500).json({ error: 'Error al guardar el diagnóstico técnico' });
+  } finally {
+    conn.release();
+  }
+});
+
+// Historial de diagnósticos de una OT (el más reciente primero)
+app.get('/api/ordenes-trabajo/:numero_ot/diagnosticos', async (req, res) => {
+  const { numero_ot } = req.params;
+  try {
+    const [ots] = await pool.query('SELECT numero_ot FROM ordenes_trabajo WHERE numero_ot = ?', [numero_ot]);
+    if (ots.length === 0) {
+      return res.status(404).json({ error: 'No existe una OT con ese número.' });
+    }
+    const [filas] = await pool.query(
+      'SELECT id, diagnostico, fecha FROM historial_diagnosticos WHERE numero_ot = ? ORDER BY fecha DESC, id DESC',
+      [numero_ot]
+    );
+    res.json(filas);
+  } catch (error) {
+    console.error('Error al obtener el historial de diagnósticos:', error);
+    res.status(500).json({ error: 'Error al obtener el historial de diagnósticos' });
   }
 });
 
@@ -298,25 +351,60 @@ app.patch('/api/ordenes-trabajo/:numero_ot/estado', async (req, res) => {
       });
     }
 
-    // Reglas que dependen de los ítems del presupuesto (Sprint 3 - Tarjeta 3.3)
-    if (nuevo_estado === 'PRESUPUESTADO' || nuevo_estado === 'REPARADO') {
+    // Regla del diagnóstico: para pasar a DIAGNOSTICADO tiene que haber un diagnóstico
+    // registrado en esta ronda (es decir, después de la última vez que la OT entró a EN_DIAGNOSTICO).
+    // Así, si se vuelve a diagnosticar en plena reparación, hay que cargar uno nuevo.
+    if (nuevo_estado === 'DIAGNOSTICADO') {
+      const [[diag]] = await conn.query(
+        `SELECT COUNT(*) AS n
+         FROM historial_diagnosticos d
+         WHERE d.numero_ot = ?
+           AND d.fecha >= COALESCE(
+                 (SELECT MAX(h.fecha_cambio) FROM historial_estados h
+                  WHERE h.numero_ot = d.numero_ot AND h.estado_nuevo = 'EN_DIAGNOSTICO'),
+                 '2000-01-01')`,
+        [numero_ot]
+      );
+      if (Number(diag.n) === 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: 'No se puede pasar a DIAGNOSTICADO sin registrar antes el diagnóstico técnico.'
+        });
+      }
+    }
+
+    // Reglas que dependen de los ítems del presupuesto (Tarjetas 3.3 y ampliación)
+    if (['PRESUPUESTADO', 'EN_REPARACION', 'REPARADO'].includes(nuevo_estado)) {
       const [[conteo]] = await conn.query(
-        `SELECT COUNT(*) AS total, COALESCE(SUM(completado = 0), 0) AS pendientes
+        `SELECT
+           COALESCE(SUM(estado_aprobacion <> 'RECHAZADO'), 0) AS vigentes,
+           COALESCE(SUM(estado_aprobacion = 'APROBADO'), 0) AS aprobados,
+           COALESCE(SUM(estado_aprobacion = 'APROBADO' AND completado = 0), 0) AS pendientes_checklist,
+           COALESCE(SUM(estado_aprobacion = 'PENDIENTE'), 0) AS sin_decision
          FROM detalles_presupuesto
          WHERE numero_ot = ?`,
         [numero_ot]
       );
-      const total = Number(conteo.total);
-      const pendientes = Number(conteo.pendientes); // SUM devuelve texto: se convierte
+      // SUM devuelve texto en MySQL: se convierte a número
+      const vigentes = Number(conteo.vigentes);
+      const aprobados = Number(conteo.aprobados);
+      const pendientesChecklist = Number(conteo.pendientes_checklist);
+      const sinDecision = Number(conteo.sin_decision);
 
-      if (nuevo_estado === 'PRESUPUESTADO' && total === 0) {
+      if (nuevo_estado === 'PRESUPUESTADO' && vigentes === 0) {
         await conn.rollback();
         return res.status(400).json({ error: 'No se puede pasar a PRESUPUESTADO sin armar antes el presupuesto.' });
       }
-      if (nuevo_estado === 'REPARADO' && pendientes > 0) {
+      if ((nuevo_estado === 'EN_REPARACION' || nuevo_estado === 'REPARADO') && sinDecision > 0) {
         await conn.rollback();
         return res.status(400).json({
-          error: `No se puede pasar a REPARADO: quedan ${pendientes} de ${total} ítems pendientes en el checklist.`
+          error: `No se puede pasar a ${nuevo_estado}: quedan ${sinDecision} ítem(s) adicional(es) sin decisión del cliente.`
+        });
+      }
+      if (nuevo_estado === 'REPARADO' && pendientesChecklist > 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: `No se puede pasar a REPARADO: quedan ${pendientesChecklist} de ${aprobados} ítems pendientes en el checklist.`
         });
       }
     }
@@ -387,11 +475,11 @@ app.post('/api/ordenes-trabajo/:numero_ot/entrega', async (req, res) => {
       [numero_ot, 'REPARADO', 'ENTREGADO']
     );
 
-    // Total del presupuesto (cada línea redondeada a 2 decimales, igual que en el frontend)
+    // Total del presupuesto aprobado (cada línea redondeada a 2 decimales, igual que en el frontend)
     const [[fila]] = await conn.query(
       `SELECT COALESCE(SUM(ROUND(cantidad * precio_unitario, 2)), 0) AS total
        FROM detalles_presupuesto
-       WHERE numero_ot = ?`,
+       WHERE numero_ot = ? AND estado_aprobacion = 'APROBADO'`,
       [numero_ot]
     );
 
