@@ -16,41 +16,50 @@
     .total-final { font-size: 1.3em; font-weight: bold; }
     #diagnostico-ot { background: #f4f4f4; color: #222; padding: 8px 12px; border-radius: 6px; white-space: pre-wrap; }
     #mensaje, #mensaje-checklist { min-height: 1.2em; }
+    .aviso { background: #fff8e1; color: #5d4037; border-left: 4px solid #f9a825; padding: 8px 12px; border-radius: 4px; }
 
-    /* Checklist de reparación (Sprint 3 - Tarjeta 3.3) */
+    /* Lista de ítems: checklist de reparación y decisión del cliente */
     #barra-progreso { width: 100%; height: 22px; }
     #lista-checklist { list-style: none; padding: 0; margin: 12px 0; }
-    #lista-checklist li { padding: 8px 4px; border-bottom: 1px solid #ddd; }
+    #lista-checklist li { padding: 8px 4px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     #lista-checklist label { cursor: pointer; display: flex; gap: 8px; align-items: center; }
-    #lista-checklist li.hecho span { text-decoration: line-through; color: #777; }
+    #lista-checklist li.hecho span.texto-item { text-decoration: line-through; color: #777; }
+    #lista-checklist li.rechazado span.texto-item { text-decoration: line-through; color: #999; }
     #lista-checklist input[type="checkbox"] { width: 18px; height: 18px; }
+    .etiqueta { font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 10px; background: #e0e0e0; color: #333; }
+    .etiqueta.adicional { background: #bbdefb; color: #0d47a1; }
+    .etiqueta.pendiente { background: #ffe082; color: #5d4037; }
+    .etiqueta.rechazado { background: #ffcdd2; color: #b71c1c; }
+    .etiqueta.aprobado { background: #c8e6c9; color: #1b5e20; }
   </style>
 </head>
 <body>
 
   <p><a href="panel.html">← Volver al panel</a></p>
-  <h1>💰 Presupuesto y checklist de la OT</h1>
+  <h1>&#128176; Presupuesto y checklist de la OT</h1>
 
   <div id="info-ot">Cargando orden de trabajo...</div>
 
-  <h3>Diagnóstico técnico</h3>
+  <h3>Diagnóstico técnico vigente</h3>
   <div id="diagnostico-ot"></div>
 
-  <!-- Checklist de reparación: se muestra cuando el presupuesto ya está fijo (OT en reparación o posterior) -->
+  <!-- Ítems del presupuesto con su estado: checklist de reparación y decisión del cliente sobre los adicionales -->
   <section id="seccion-checklist" hidden>
-    <h3>Checklist de reparación</h3>
+    <h3 id="titulo-lista">Checklist de reparación</h3>
     <p id="texto-progreso"></p>
     <progress id="barra-progreso" value="0" max="1"></progress>
     <ul id="lista-checklist"></ul>
     <p id="mensaje-checklist"></p>
     <div class="totales">
-      <div class="total-final">Total del presupuesto: <span id="total-checklist">$ 0,00</span></div>
+      <div class="total-final">Total aprobado: <span id="total-checklist">$ 0,00</span></div>
+      <div id="fila-total-pendiente" hidden>Pendiente de decisión del cliente: <span id="total-pendiente">$ 0,00</span></div>
     </div>
   </section>
 
-  <!-- Formulario de presupuesto: se muestra mientras todavía se puede editar -->
+  <!-- Formulario: primer presupuesto, o trabajos adicionales si la OT vuelve de la reparación -->
   <form id="form-presupuesto">
-    <h3>Ítems del presupuesto</h3>
+    <h3 id="titulo-form">Ítems del presupuesto</h3>
+    <p id="aviso-form" class="aviso" hidden></p>
     <table>
       <thead>
         <tr>
