@@ -1,5 +1,5 @@
 -- AutoFix Manager - Esquema completo (instalación desde cero)
--- Incluye Sprints 1, 2 y 3 (tarjetas 3.1 y 3.2).
+-- Incluye Sprints 1, 2 y 3 (flujo de estados, ampliación del presupuesto y historial de diagnósticos).
 CREATE DATABASE autofix_db;
 USE autofix_db;
 
@@ -41,8 +41,9 @@ CREATE TABLE ordenes_trabajo (
     mecanico_id INT NULL,                -- Sprint 3 (Tarjeta 3.2)
     motivo_ingreso TEXT NOT NULL,
     diagnostico_tecnico TEXT NULL,       -- Sprint 2 (Tarjeta 2.1)
-    -- Sprint 3 (Tarjeta 3.1): estados finales del flujo del taller
-    estado ENUM('INGRESADO', 'DIAGNOSTICO', 'PRESUPUESTADO', 'EN_REPARACION', 'LISTO', 'ENTREGADO', 'CANCELADO') DEFAULT 'INGRESADO',
+    -- Sprint 3 (Tarjeta 3.1): estados del flujo del taller. Cada etapa tiene su versión
+    -- «en curso» (EN_...) y «ya pasó» (...ADO), y el trabajo se cierra con ENTREGADO o CANCELADO.
+    estado ENUM('INGRESADO', 'EN_DIAGNOSTICO', 'DIAGNOSTICADO', 'EN_PRESUPUESTO', 'PRESUPUESTADO', 'EN_REPARACION', 'REPARADO', 'ENTREGADO', 'CANCELADO') DEFAULT 'INGRESADO',
     fecha_ingreso TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     fecha_entrega TIMESTAMP NULL DEFAULT NULL,   -- Sprint 3 (Tarjeta 3.4)
     observaciones_entrega TEXT NULL,             -- Sprint 3 (Tarjeta 3.4)
@@ -81,6 +82,9 @@ CREATE TABLE detalles_presupuesto (
     precio_unitario DECIMAL(12,2) NOT NULL,
     completado BOOLEAN NOT NULL DEFAULT FALSE,          -- Sprint 3 (Tarjeta 3.3): checklist de reparación
     fecha_completado TIMESTAMP NULL DEFAULT NULL,       -- Sprint 3 (Tarjeta 3.3)
+    -- Ampliación del presupuesto (fallas nuevas durante la reparación):
+    adicional BOOLEAN NOT NULL DEFAULT FALSE,           -- TRUE si se agregó después de empezar la reparación
+    estado_aprobacion ENUM('PENDIENTE', 'APROBADO', 'RECHAZADO') NOT NULL DEFAULT 'APROBADO',  -- decisión del cliente
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_detalle_ot
@@ -98,6 +102,19 @@ CREATE TABLE historial_estados (
     fecha_cambio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_historial_ot
+        FOREIGN KEY (numero_ot)
+        REFERENCES ordenes_trabajo(numero_ot)
+        ON DELETE CASCADE
+);
+
+-- 8. Historial de diagnósticos (cada diagnóstico queda registrado, no se pisa el anterior)
+CREATE TABLE historial_diagnosticos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    numero_ot VARCHAR(20) NOT NULL,
+    diagnostico TEXT NOT NULL,
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_hist_diag_ot
         FOREIGN KEY (numero_ot)
         REFERENCES ordenes_trabajo(numero_ot)
         ON DELETE CASCADE
